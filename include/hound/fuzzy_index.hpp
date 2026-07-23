@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -25,10 +27,12 @@ struct SearchOptions {
   std::size_t prefix_candidate_limit = 64;
 };
 
+// Thread-safe in-memory index: shared locks for search, unique for mutations.
 class FuzzyIndex {
  public:
   void upsert(Document doc) {
     const std::string normalized = normalize(doc.text);
+    std::unique_lock lock(mu_);
     auto it = docs_.find(doc.id);
     if (it != docs_.end()) {
       const std::string old_norm = normalize(it->second.text);
@@ -43,6 +47,7 @@ class FuzzyIndex {
   }
 
   bool erase(const std::string& id) {
+    std::unique_lock lock(mu_);
     auto it = docs_.find(id);
     if (it == docs_.end()) {
       return false;
@@ -55,6 +60,7 @@ class FuzzyIndex {
   }
 
   std::optional<Document> get(const std::string& id) const {
+    std::shared_lock lock(mu_);
     auto it = docs_.find(id);
     if (it == docs_.end()) {
       return std::nullopt;
@@ -62,16 +68,28 @@ class FuzzyIndex {
     return it->second;
   }
 
-  std::size_t size() const { return docs_.size(); }
+  std::size_t size() const {
+    std::shared_lock lock(mu_);
+    return docs_.size();
+  }
 
   void clear() {
+    std::unique_lock lock(mu_);
     docs_.clear();
     trie_.clear();
     bk_.clear();
   }
 
-  // Expose documents for snapshot serialization.
-  const std::unordered_map<std::string, Document>& documents() const { return docs_; }
+  // Copy under shared lock for snapshot serialization.
+  std::vector<Document> copy_documents() const {
+    std::shared_lock lock(mu_);
+    std::vector<Document> out;
+    out.reserve(docs_.size());
+    for (const auto& [_, doc] : docs_) {
+      out.push_back(doc);
+    }
+    return out;
+  }
 
   std::vector<SearchHit> search(std::string_view query, SearchOptions opt = {}) const {
     const std::string q = normalize(query);
@@ -98,21 +116,24 @@ class FuzzyIndex {
       }
     };
 
-    if (!q.empty()) {
-      auto comps = trie_.completions(q, opt.prefix_candidate_limit);
-      for (const auto& [key, ids] : comps) {
-        const int dist = static_cast<int>(key.size() >= q.size() ? key.size() - q.size() : 0);
-        // Prefix hits: treat as distance 0 with bonus when exact key start matches.
-        const int edit = (key == q) ? 0 : std::min(dist, opt.max_edit_distance);
-        for (const auto& id : ids) {
-          consider(id, edit, true);
+    {
+      std::shared_lock lock(mu_);
+      if (!q.empty()) {
+        auto comps = trie_.completions(q, opt.prefix_candidate_limit);
+        for (const auto& [key, ids] : comps) {
+          const int dist =
+              static_cast<int>(key.size() >= q.size() ? key.size() - q.size() : 0);
+          const int edit = (key == q) ? 0 : std::min(dist, opt.max_edit_distance);
+          for (const auto& id : ids) {
+            consider(id, edit, true);
+          }
         }
-      }
 
-      auto fuzzy = bk_.search(q, opt.max_edit_distance);
-      for (const auto& m : fuzzy) {
-        for (const auto& id : m.ids) {
-          consider(id, m.distance, false);
+        auto fuzzy = bk_.search(q, opt.max_edit_distance);
+        for (const auto& m : fuzzy) {
+          for (const auto& id : m.ids) {
+            consider(id, m.distance, false);
+          }
         }
       }
     }
@@ -132,6 +153,7 @@ class FuzzyIndex {
   }
 
  private:
+  mutable std::shared_mutex mu_;
   std::unordered_map<std::string, Document> docs_;
   Trie trie_;
   BkTree bk_;

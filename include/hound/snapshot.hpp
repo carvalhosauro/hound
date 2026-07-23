@@ -106,8 +106,9 @@ inline void save_snapshot(const FuzzyIndex& index, const std::string& path) {
   }
   detail::write_u32(out, kSnapshotMagic);
   detail::write_u32(out, kSnapshotVersion);
-  detail::write_u64(out, static_cast<std::uint64_t>(index.size()));
-  for (const auto& [id, doc] : index.documents()) {
+  const auto docs = index.copy_documents();
+  detail::write_u64(out, static_cast<std::uint64_t>(docs.size()));
+  for (const auto& doc : docs) {
     detail::write_string(out, doc.id);
     detail::write_string(out, doc.text);
     detail::write_f64(out, doc.external_score);
