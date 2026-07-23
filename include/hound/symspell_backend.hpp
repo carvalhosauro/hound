@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "hound/bk_tree.hpp"
+#include "hound/bk_fuzzy_backend.hpp"
 #include "hound/fuzzy_backend.hpp"
 
 namespace hound {
@@ -186,11 +187,12 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
 inline std::unique_ptr<FuzzyBackend> make_fuzzy_backend(
     FuzzyBackendKind kind = default_fuzzy_backend_kind()) {
   switch (kind) {
-    case FuzzyBackendKind::SymSpell:
-      return std::make_unique<SymSpellFuzzyBackend>();
     case FuzzyBackendKind::BkTree:
-    default:
+      // Oracle / escape hatch only — not the default hot path (B5).
       return std::make_unique<BkFuzzyBackend>();
+    case FuzzyBackendKind::SymSpell:
+    default:
+      return std::make_unique<SymSpellFuzzyBackend>();
   }
 }
 

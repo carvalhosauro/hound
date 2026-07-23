@@ -103,7 +103,7 @@ Notes:
 | Piece | Implementation | File |
 |-------|----------------|------|
 | Prefix | Trie with per-node `unique_ptr` + `unordered_map<char,…>` | `include/hound/trie.hpp` |
-| Fuzzy | `FuzzyBackend`: **default SymSpell** symmetric-delete; BK opt-in | `fuzzy_backend.hpp`, `symspell_backend.hpp`, `bk_tree.hpp` |
+| Fuzzy | **Default SymSpell**; BK demoted to oracle/escape (`bk_fuzzy_backend.hpp`) | `symspell_backend.hpp`, `bk_fuzzy_backend.hpp`, `bk_tree.hpp` |
 | Orchestration | Sync upsert into Trie + FuzzyBackend + doc map | `include/hound/fuzzy_index.hpp` |
 | Ranking | Linear `α·text + (1-α)·norm(external)` | `include/hound/score_merger.hpp` |
 | Concurrency | `shared_mutex` on `FuzzyIndex`; HTTP still has an API-level mutex for snapshot writes | `fuzzy_index.hpp`, `http_api.hpp` |
@@ -254,15 +254,11 @@ path. Ship behind a clear seam so each slice is reviewable.
 | **B2** | Symmetric-delete index build (edits ≤2) + lookup; behind flag/compile switch | build RSS/time; lookup correctness vs BK on golden set | Unit/golden: same hits as BK on agreed fixture **or** documented intentional diffs | **Done** (2026-07-23) |
 | **B3** | Wire into `FuzzyIndex` search path (feature flag default off) | before/after `BM_SearchFuzzy/*`; temporary probe OK if untracked | Flag off = baseline parity; flag on shows target latency drop on 20k/d=2 | **Done** (2026-07-23) |
 | **B4** | Enable default **only if** metrics win | micro + recall@10 (or golden) | p50/p99 fuzzy improve vs Phase 0/micro baseline; recall@10 on happy path ≥ baseline; `save_baseline.sh` only after human accept | **Done** (2026-07-23) — SymSpell default; insert regression justified; baseline **not** saved |
-| **B5** | Remove or demote BK from hot path (keep as test oracle if useful) | micro + correctness | Dead code path gone or clearly non-default; suite still green | pending |
+| **B5** | Remove or demote BK from hot path (keep as test oracle if useful) | micro + correctness | Dead code path gone or clearly non-default; suite still green | **Done** (2026-07-23) — BK in `bk_fuzzy_backend.hpp` as oracle/escape only |
 
-**B1 seam:** `include/hound/fuzzy_backend.hpp` (`FuzzyBackend` + `BkFuzzyBackend` +
-`FuzzyBackendKind`). `FuzzyIndex` takes `unique_ptr<FuzzyBackend>`.
-
-**B2–B4 SymSpell:** `include/hound/symspell_backend.hpp`. **Default = SymSpell** after B4.
-Escape hatch: `--fuzzy-backend bk`, `HOUND_FUZZY_BACKEND=bk`, or
-`-DHOUND_DEFAULT_FUZZY_BACKEND_BK`. Lazy delete-map rebuild via `prepare()` /
-first search. Parity vs BK at `max_edit_distance=2` (unit + golden).
+**Hot path:** SymSpell (`symspell_backend.hpp`). **Oracle/fallback:** `BkFuzzyBackend`
+in `bk_fuzzy_backend.hpp` + raw `BkTree` for unit oracles. Escape hatch unchanged
+(`--fuzzy-backend bk`, env, `-DHOUND_DEFAULT_FUZZY_BACKEND_BK`).
 
 **B4 metrics (same host):** `BM_SearchFuzzy/20000/2` SymSpell ~8 µs vs BK ~1.2 ms
 (~−99%) and vs versioned baseline ~802 µs (~−99%). Golden recall unchanged.
@@ -348,6 +344,27 @@ linear merge as default.
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Phase B5 demote BK to oracle/escape hatch
+
+```text
+Hypothesis: With SymSpell as default, BK should not live in the primary
+            fuzzy_backend header / mental hot path; keep it as an explicit
+            oracle + CLI/env escape hatch only.
+Primary metric(s):   correctness (no perf claim)
+Secondary metric(s): default still SymSpell; BK selectable for tests
+Before/After:        N/A structure demotion
+Correctness: ./scripts/run_correctness.sh — pass
+Micro gate:  N/A (no scoring/search algorithm change)
+DoD items:   [x] BK off hot-path header  [x] oracle kept  [x] suite green
+Decision:    ship — Phase B complete; proceed to Phase C
+```
+
+- Changes: `BkFuzzyBackend` → `include/hound/bk_fuzzy_backend.hpp`;
+  `fuzzy_backend.hpp` is interface + kind only; factory default arm is SymSpell.
+- Correctness: pass
+- Micro gate: N/A
+- Decision: **ship**
 
 ### 2026-07-23 — Phase B4 SymSpell becomes default (insert regression justified)
 

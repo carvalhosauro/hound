@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "hound/bk_fuzzy_backend.hpp"
 #include "hound/fuzzy_backend.hpp"
 #include "hound/fuzzy_index.hpp"
 #include "hound/symspell_backend.hpp"
