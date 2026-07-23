@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "hound/document.hpp"
-#include "hound/symspell_backend.hpp"  // FuzzyBackend + factory (BK default)
+#include "hound/symspell_backend.hpp"  // FuzzyBackend + factory (SymSpell default)
 #include "hound/normalizer.hpp"
 #include "hound/score_merger.hpp"
 #include "hound/trie.hpp"
@@ -29,7 +29,7 @@ struct SearchOptions {
 };
 
 // Thread-safe in-memory index: shared locks for search, unique for mutations.
-// Fuzzy dictionary is pluggable via FuzzyBackend (default: BkFuzzyBackend).
+// Fuzzy dictionary is pluggable via FuzzyBackend (default: SymSpell after B4).
 class FuzzyIndex {
  public:
   explicit FuzzyIndex(std::unique_ptr<FuzzyBackend> fuzzy = make_default_fuzzy_backend())
@@ -87,6 +87,12 @@ class FuzzyIndex {
     docs_.clear();
     trie_.clear();
     fuzzy_->clear();
+  }
+
+  // Finish deferred fuzzy-index work (e.g. SymSpell delete map) after bulk load.
+  void prepare() {
+    std::unique_lock lock(mu_);
+    fuzzy_->prepare();
   }
 
   // Copy under shared lock for snapshot serialization.

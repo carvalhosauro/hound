@@ -21,7 +21,7 @@ void usage(const char* argv0) {
       << "  --port            listen port (default 8080)\n"
       << "  --snapshot        optional binary snapshot path (load on boot, save on writes)\n"
       << "  --load            bulk load .csv or .json before serving\n"
-      << "  --fuzzy-backend   fuzzy dictionary: bk (default) or symspell\n"
+      << "  --fuzzy-backend   fuzzy dictionary: symspell (default) or bk\n"
       << "                    (overrides HOUND_FUZZY_BACKEND env if set)\n";
 }
 
@@ -76,6 +76,7 @@ int main(int argc, char** argv) {
       probe.close();
       try {
         hound::load_snapshot(index, snapshot);
+        index.prepare();
         std::cerr << "loaded snapshot: " << snapshot << " (" << index.size() << " docs)\n";
       } catch (const std::exception& ex) {
         std::cerr << "warning: could not load snapshot: " << ex.what() << "\n";
@@ -85,6 +86,7 @@ int main(int argc, char** argv) {
 
   if (!load_path.empty()) {
     const auto n = hound::load_bulk_file(index, load_path);
+    index.prepare();
     std::cerr << "bulk loaded " << n << " docs from " << load_path << "\n";
     if (!snapshot.empty()) {
       hound::save_snapshot(index, snapshot);

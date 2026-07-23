@@ -17,7 +17,8 @@ struct FuzzyMatch {
   int distance = 0;
 };
 
-// Pluggable fuzzy dictionary (Phase B). Default implementation is BkFuzzyBackend.
+// Pluggable fuzzy dictionary (Phase B). Default implementation is selected via
+// FuzzyBackendKind (SymSpell after B4 when metrics win; override with BK).
 class FuzzyBackend {
  public:
   virtual ~FuzzyBackend() = default;
@@ -26,6 +27,8 @@ class FuzzyBackend {
   virtual void erase(std::string_view key, const std::string& id) = 0;
   virtual std::vector<FuzzyMatch> search(std::string_view query, int max_distance) const = 0;
   virtual void clear() = 0;
+  // Optional: finish deferred index work after bulk ingest (SymSpell delete map).
+  virtual void prepare() {}
 };
 
 // BK-tree adapter — default fuzzy path; behavior must stay aligned with BkTree.
@@ -53,14 +56,15 @@ class BkFuzzyBackend final : public FuzzyBackend {
   BkTree tree_;
 };
 
-// Runtime / compile selection for FuzzyBackend (B2). Default remains BK.
+// Runtime / compile selection for FuzzyBackend.
+// B4: SymSpell is the default when metrics win; force BK with
+// -DHOUND_DEFAULT_FUZZY_BACKEND_BK or HOUND_FUZZY_BACKEND=bk / --fuzzy-backend bk.
 enum class FuzzyBackendKind { BkTree, SymSpell };
 
-// Override default with -DHOUND_DEFAULT_FUZZY_BACKEND_SYMSPELL (compile switch).
-#if defined(HOUND_DEFAULT_FUZZY_BACKEND_SYMSPELL)
-inline constexpr FuzzyBackendKind kCompileDefaultFuzzyBackend = FuzzyBackendKind::SymSpell;
-#else
+#if defined(HOUND_DEFAULT_FUZZY_BACKEND_BK)
 inline constexpr FuzzyBackendKind kCompileDefaultFuzzyBackend = FuzzyBackendKind::BkTree;
+#else
+inline constexpr FuzzyBackendKind kCompileDefaultFuzzyBackend = FuzzyBackendKind::SymSpell;
 #endif
 
 inline FuzzyBackendKind default_fuzzy_backend_kind() { return kCompileDefaultFuzzyBackend; }

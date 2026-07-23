@@ -20,6 +20,7 @@ int main(int argc, char** argv) {
 
   hound::FuzzyIndex index;
   const auto n = hound::load_bulk_file(index, path);
+  index.prepare();
   std::cout << "loaded " << n << " documents\n";
   if (!snapshot.empty()) {
     hound::save_snapshot(index, snapshot);

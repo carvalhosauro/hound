@@ -19,12 +19,13 @@ std::unique_ptr<hound::FuzzyIndex> build_index(std::size_t n) {
   cfg.count = n;
   cfg.seed = kSeed;
   auto docs = hound::synth::generate_documents(cfg);
-  // Honors HOUND_FUZZY_BACKEND (bk default; symspell opt-in) for Phase B probes.
+  // Honors HOUND_FUZZY_BACKEND when set; otherwise compile/runtime default.
   auto index = std::make_unique<hound::FuzzyIndex>(
       hound::make_fuzzy_backend(hound::fuzzy_backend_kind_from_env()));
   for (const auto& d : docs) {
     index->upsert(d);
   }
+  index->prepare();  // build SymSpell deletes outside timed search loops
   return index;
 }
 
@@ -50,6 +51,7 @@ void BM_Insert(benchmark::State& state) {
     for (const auto& d : docs) {
       index.upsert(d);
     }
+    index.prepare();  // include delete-index build in ingest cost
     benchmark::DoNotOptimize(index.size());
   }
   state.SetItemsProcessed(state.iterations() * static_cast<std::int64_t>(n));

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -17,8 +18,8 @@
 namespace hound {
 
 // SymSpell-style symmetric-delete index (edits ≤ max_dictionary_edit_distance).
-// Lookup generates query deletes, unions candidate dictionary words, then verifies
-// with Levenshtein. Full hit-parity vs BK is expected for max_distance ≤ 2.
+// Dictionary updates are cheap; the delete map is rebuilt lazily on search/prepare
+// (B4) so bulk ingest stays viable while lookup stays fast.
 class SymSpellFuzzyBackend final : public FuzzyBackend {
  public:
   explicit SymSpellFuzzyBackend(int max_dictionary_edit_distance = 2)
@@ -29,9 +30,7 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
     if (std::find(ids.begin(), ids.end(), id) == ids.end()) {
       ids.push_back(std::move(id));
     }
-    if (ids.size() == 1) {
-      index_deletes_for(key);
-    }
+    mark_deletes_dirty();
   }
 
   void erase(std::string_view key, const std::string& id) override {
@@ -42,14 +41,14 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
     }
     auto& ids = it->second;
     ids.erase(std::remove(ids.begin(), ids.end(), id), ids.end());
-    if (!ids.empty()) {
-      return;
+    if (ids.empty()) {
+      dictionary_.erase(it);
     }
-    unindex_deletes_for(key_str);
-    dictionary_.erase(it);
+    mark_deletes_dirty();
   }
 
   std::vector<FuzzyMatch> search(std::string_view query, int max_distance) const override {
+    ensure_deletes_built();
     std::vector<FuzzyMatch> out;
     if (max_distance < 0) {
       return out;
@@ -66,7 +65,7 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
 
     consider_word(std::string(query));
 
-    std::unordered_set<std::string> query_deletes;
+    std::vector<std::string> query_deletes;
     generate_deletes(std::string(query), gen_edits, query_deletes);
     for (const auto& del : query_deletes) {
       consider_word(del);
@@ -101,65 +100,87 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
   }
 
   void clear() override {
+    std::lock_guard lock(rebuild_mu_);
     dictionary_.clear();
     deletes_.clear();
+    deletes_ready_ = true;
   }
+
+  // Build delete index now (no-op if already current). Safe to call after bulk load.
+  void prepare() override { ensure_deletes_built(); }
 
   int max_dictionary_edit_distance() const { return max_dict_edits_; }
 
  private:
-  void index_deletes_for(const std::string& word) {
-    std::unordered_set<std::string> dels;
-    generate_deletes(word, max_dict_edits_, dels);
-    for (const auto& del : dels) {
-      deletes_[del].insert(word);
-    }
+  void mark_deletes_dirty() {
+    std::lock_guard lock(rebuild_mu_);
+    deletes_ready_ = false;
+    deletes_.clear();
   }
 
-  void unindex_deletes_for(const std::string& word) {
-    std::unordered_set<std::string> dels;
-    generate_deletes(word, max_dict_edits_, dels);
-    for (const auto& del : dels) {
-      auto it = deletes_.find(del);
-      if (it == deletes_.end()) {
+  void ensure_deletes_built() const {
+    std::lock_guard lock(rebuild_mu_);
+    if (deletes_ready_) {
+      return;
+    }
+    deletes_.clear();
+    // Rough reserve: each word contributes O(len^2) deletes at distance 2.
+    deletes_.reserve(dictionary_.size() * 8);
+    for (const auto& [word, ids] : dictionary_) {
+      if (ids.empty()) {
         continue;
       }
-      it->second.erase(word);
-      if (it->second.empty()) {
-        deletes_.erase(it);
-      }
+      index_deletes_for(word);
+    }
+    deletes_ready_ = true;
+  }
+
+  void index_deletes_for(const std::string& word) const {
+    std::vector<std::string> dels;
+    generate_deletes(word, max_dict_edits_, dels);
+    for (auto& del : dels) {
+      deletes_[std::move(del)].push_back(word);
     }
   }
 
-  // All strings obtained by deleting 1..max_edits characters (iterative BFS).
-  // Does not include the original word.
+  // Deletes at edit distance 1..max_edits (not including the original word).
+  // Specialized for the practical SymSpell depths 1 and 2.
   static void generate_deletes(const std::string& word, int max_edits,
-                               std::unordered_set<std::string>& out) {
+                               std::vector<std::string>& out) {
     if (max_edits <= 0 || word.empty()) {
       return;
     }
-    std::unordered_set<std::string> frontier{word};
-    for (int edit = 1; edit <= max_edits; ++edit) {
-      std::unordered_set<std::string> next;
-      for (const auto& w : frontier) {
-        for (std::size_t i = 0; i < w.size(); ++i) {
-          std::string del = w;
-          del.erase(i, 1);
-          if (out.insert(del).second) {
-            next.insert(std::move(del));
-          }
-        }
-      }
-      frontier = std::move(next);
-      if (frontier.empty()) {
-        break;
+    const std::size_t n = word.size();
+    out.reserve(out.size() + n + (max_edits >= 2 ? (n * (n - 1)) / 2 : 0));
+
+    for (std::size_t i = 0; i < n; ++i) {
+      std::string del;
+      del.reserve(n - 1);
+      del.append(word.data(), i);
+      del.append(word.data() + i + 1, n - i - 1);
+      out.push_back(std::move(del));
+    }
+
+    if (max_edits < 2 || n < 2) {
+      return;
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+      for (std::size_t j = i + 1; j < n; ++j) {
+        std::string del;
+        del.reserve(n - 2);
+        del.append(word.data(), i);
+        del.append(word.data() + i + 1, j - i - 1);
+        del.append(word.data() + j + 1, n - j - 1);
+        out.push_back(std::move(del));
       }
     }
   }
 
   int max_dict_edits_;
   std::unordered_map<std::string, std::vector<std::string>> dictionary_;
-  std::unordered_map<std::string, std::unordered_set<std::string>> deletes_;
+  mutable std::unordered_map<std::string, std::vector<std::string>> deletes_;
+  mutable bool deletes_ready_ = true;
+  mutable std::mutex rebuild_mu_;
 };
 
 inline std::unique_ptr<FuzzyBackend> make_fuzzy_backend(
@@ -177,7 +198,7 @@ inline std::unique_ptr<FuzzyBackend> make_default_fuzzy_backend() {
   return make_fuzzy_backend(default_fuzzy_backend_kind());
 }
 
-// Runtime feature flag (B3): HOUND_FUZZY_BACKEND=symspell|bk (default bk / compile default).
+// Runtime feature flag: HOUND_FUZZY_BACKEND=symspell|bk
 inline bool parse_fuzzy_backend_kind(std::string_view text, FuzzyBackendKind& out) {
   if (text == "symspell" || text == "SymSpell" || text == "symmetric_delete") {
     out = FuzzyBackendKind::SymSpell;

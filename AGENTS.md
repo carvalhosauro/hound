@@ -89,12 +89,12 @@ Detail: [`benchmarks/macro/README.md`](benchmarks/macro/README.md),
 ## Performance work
 
 Before large fuzzy refactors, follow [`docs/REFINEMENT.md`](docs/REFINEMENT.md):
-measure (`perf` / micro) first. Phase A (`perf` @ `BM_SearchFuzzy/20000/2`)
-**confirmed** BK-tree + Levenshtein dominate (~83% combined leaf). SymSpell
-symmetric-delete is implemented behind a flag (`--fuzzy-backend symspell` /
-`HOUND_FUZZY_BACKEND=symspell`): ~98% faster `BM_SearchFuzzy/20000/2`, but
-insert is much slower — default remains BK until B4. Do not migrate to ART
-“because Typesense” at ~thousands of docs without a profile saying so.
+measure (`perf` / micro) first. Phase A confirmed BK+Levenshtein dominated;
+Phase B4 made **SymSpell the default** (~−99% on `BM_SearchFuzzy/20000/2`).
+Ingest (`BM_Insert`) is slower — intentional until a human accepts a new
+micro baseline (`save_baseline.sh`). Force BK with `--fuzzy-backend bk` or
+`HOUND_FUZZY_BACKEND=bk`. Do not migrate to ART “because Typesense” at
+~thousands of docs without a profile saying so.
 
 **Fuzzy PR gate metrics** (mandatory `compare_bench.py` names — see
 `docs/REFINEMENT.md` §A2): `BM_SearchFuzzy/20000/1`,

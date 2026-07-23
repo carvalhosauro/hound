@@ -87,17 +87,27 @@ TEST_CASE("SymSpellFuzzyBackend erase and clear", "[symspell][b2]") {
   REQUIRE(sym.search("beta", 2).empty());
 }
 
-TEST_CASE("make_fuzzy_backend flag selects SymSpell; default remains BK", "[symspell][b2]") {
+TEST_CASE("make_fuzzy_backend flag selects backends; default is SymSpell", "[symspell][b4]") {
   auto def = hound::make_fuzzy_backend();
   auto bk = hound::make_fuzzy_backend(hound::FuzzyBackendKind::BkTree);
   auto sym = hound::make_fuzzy_backend(hound::FuzzyBackendKind::SymSpell);
 
-  REQUIRE(dynamic_cast<hound::BkFuzzyBackend*>(def.get()) != nullptr);
+  REQUIRE(dynamic_cast<hound::SymSpellFuzzyBackend*>(def.get()) != nullptr);
   REQUIRE(dynamic_cast<hound::BkFuzzyBackend*>(bk.get()) != nullptr);
   REQUIRE(dynamic_cast<hound::SymSpellFuzzyBackend*>(sym.get()) != nullptr);
 
-  // Default factory used by FuzzyIndex stays BK (compile/runtime default).
-  REQUIRE(hound::default_fuzzy_backend_kind() == hound::FuzzyBackendKind::BkTree);
+  REQUIRE(hound::default_fuzzy_backend_kind() == hound::FuzzyBackendKind::SymSpell);
+}
+
+TEST_CASE("SymSpellFuzzyBackend lazy prepare builds deletes once", "[symspell][b4]") {
+  hound::SymSpellFuzzyBackend sym;
+  for (int i = 0; i < 100; ++i) {
+    sym.insert("word" + std::to_string(i), std::to_string(i));
+  }
+  // Search triggers lazy rebuild; subsequent searches stay correct.
+  REQUIRE_FALSE(ids_of(sym, "word50", 0).empty());
+  sym.prepare();
+  REQUIRE(ids_of(sym, "wrd50", 1).count("50") == 1);
 }
 
 TEST_CASE("parse_fuzzy_backend_kind accepts bk and symspell", "[symspell][b2]") {

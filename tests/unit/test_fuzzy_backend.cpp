@@ -68,13 +68,14 @@ TEST_CASE("BkFuzzyBackend matches BkTree hits on fixture", "[fuzzy_backend][b1]"
   }
 }
 
-TEST_CASE("default FuzzyIndex fuzzy path uses BK backend parity", "[fuzzy_backend][b1]") {
-  // Same normalized keys the index would store; proves default backend is BK-equivalent.
+TEST_CASE("default FuzzyIndex fuzzy path matches BkTree oracle", "[fuzzy_backend][b1][b4]") {
+  // Same normalized keys the index would store; proves default backend (SymSpell)
+  // stays hit-compatible with BK on the typo path.
   hound::BkTree oracle;
   oracle.insert("alpha ridge", "1");
   oracle.insert("alpine lake", "2");
 
-  hound::FuzzyIndex idx;  // default ctor — must keep BK behavior
+  hound::FuzzyIndex idx;  // default ctor — SymSpell after B4
   idx.upsert({"1", "Alpha Ridge", 10.0});
   idx.upsert({"2", "Alpine Lake", 5.0});
 
