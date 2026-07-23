@@ -112,10 +112,20 @@ Target: `hound_bench_micro` (`benchmarks/micro/bench_ops.cpp`).
 - Synthetic generator seed **42** (typo seed 99).
 - Versioned baseline: `baselines/micro_baseline.json`.
 
-## 6–8. Macro / profiling / compare
+## 6. Macrobenchmark (hey) — Phase C
 
-Phases C–D (not implemented yet): hey HTTP load, `perf` wrappers,
-`compare_bench.py` with **+10%** micro regression threshold.
+HTTP load against a live sidecar. See [`benchmarks/macro/README.md`](../benchmarks/macro/README.md).
+
+```bash
+./scripts/run_macro.sh
+# → benchmarks/results/macro_<ts>.txt
+```
+
+Includes loopback + HTTP + JSON — **not** comparable to micro µs.
+
+## 7–8. Profiling / compare
+
+Phase D (pending): `perf` wrappers + `compare_bench.py` (+10% micro gate).
 
 ---
 
@@ -125,7 +135,7 @@ Phases C–D (not implemented yet): hey HTTP load, `perf` wrappers,
 |-----|------|
 | `./scripts/run_correctness.sh` | Before every merge |
 | `./scripts/run_micro.sh` (+ optional save_baseline) | Before perf-sensitive merges |
-| Macro hey | Manual / Phase C |
+| `./scripts/run_macro.sh` | Manual / before HTTP path changes |
 
 ---
 
@@ -136,7 +146,7 @@ Phases C–D (not implemented yet): hey HTTP load, `perf` wrappers,
 | Catch2 | FetchContent (existing) |
 | libtsan | OS package for TSan job |
 | Google Benchmark | FetchContent when `HOUND_BUILD_BENCH` (Phase B) |
-| hey | Phase C |
+| hey | External binary (`go install github.com/rakyll/hey@latest`) |
 
 ---
 
@@ -146,7 +156,7 @@ Phases C–D (not implemented yet): hey HTTP load, `perf` wrappers,
 |-------|--------|
 | **A** Correctness + golden + TSan | **Done** (2026-07-23) |
 | **B** Micro (Google Benchmark) | **Done** (2026-07-23) |
-| **C** Macro (hey) | Pending |
+| **C** Macro (hey) | **Done** (2026-07-23) |
 | **D** Profiling + compare script | Pending |
 
 ---
@@ -176,3 +186,17 @@ Phases C–D (not implemented yet): hey HTTP load, `perf` wrappers,
   `./scripts/save_baseline.sh benchmarks/results/micro_….json`
 - **Limits:** no automated compare/regression gate yet (Phase D); legacy
   `hound_bench` MVP binary still present alongside micro.
+
+### Phase C — 2026-07-23
+
+- **Done:** HTTP macrobenchmark with `hey` (`benchmarks/macro/run_macro.sh`,
+  wrapper `scripts/run_macro.sh`); scenarios `/health`, exact `/search`, typo
+  `/search`; synthetic corpus with fixed seed; README documents network/JSON
+  overhead vs micro. Default `hey -disable-keepalive` (keep-alive + httplib
+  inflated hey timings by ~40 ms). `/search` no longer holds the API write
+  mutex (relies on `FuzzyIndex` shared locking).
+- **How to run:** `GOBIN=$(go env GOPATH)/bin go install github.com/rakyll/hey@latest`
+  then `./scripts/run_macro.sh` (optional `HOUND_MACRO_N`, `HOUND_MACRO_C`,
+  `HOUND_MACRO_DOCS`).
+- **Limits:** text report only (not JSON); not gated in CI; remote CI still deferred.
+  Without keep-alive, p99 may show connection-churn outliers — prefer p50/p90.

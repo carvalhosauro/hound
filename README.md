@@ -91,10 +91,18 @@ id,text,external_score
 # Micro suite (Google Benchmark → JSON)
 ./scripts/run_micro.sh
 ./scripts/save_baseline.sh benchmarks/results/micro_<timestamp>.json
+
+# HTTP macro suite (hey — includes network/JSON overhead)
+# Requires: go install github.com/rakyll/hey@latest
+./scripts/run_macro.sh
 ```
 
 Micro reports insert, exact search, fuzzy (edit distance 1–3), and score-merge
 latency across index sizes 1k / 5k / 20k (synthetic names, seed 42).
+
+Macro drives concurrent HTTP clients against a live sidecar and writes
+`benchmarks/results/macro_<timestamp>.txt`. See
+[benchmarks/macro/README.md](benchmarks/macro/README.md).
 
 ## Project layout
 

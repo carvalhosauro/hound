@@ -7,6 +7,7 @@
 /.claude/
 /.code-review-graph/
 /benchmarks/results/*.json
+/benchmarks/results/*.txt
 compile_commands.json
 *.o
 *.a
