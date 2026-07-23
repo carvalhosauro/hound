@@ -1,10 +1,6 @@
 # Hound — post-MVP refinement
 
 Living roadmap: measure first, ship small, prove each win with numbers.
-Feature work (SymSpell, ranking, etc.) starts only after Phase A evidence.
-Phase A is **done** (2026-07-23): `perf` confirms BK/Levenshtein dominate
-fuzzy search @ 20k. Earlier testing work also added `shared_mutex` on
-`FuzzyIndex` so concurrent search+upsert is defined under TSan.
 
 Learning sources: Sonic, Typesense, Xapian, SymSpell, CppCon 2024
 “When Nanoseconds Matter” (David Gross).
@@ -12,6 +8,46 @@ Learning sources: Sonic, Typesense, Xapian, SymSpell, CppCon 2024
 How to run the suite day-to-day: [`AGENTS.md`](../AGENTS.md),
 [`benchmarks/macro/README.md`](../benchmarks/macro/README.md),
 [`benchmarks/profiling/README.md`](../benchmarks/profiling/README.md).
+
+---
+
+## Status — where we stopped (2026-07-23)
+
+**Paused after Phase C.** Phases **A–C are complete** and on `main`.
+Next planned slice: **Phase D1** (pluggable `Ranker`). Parallel track:
+SymSpell RAM/`prepare` ([issue #1](https://github.com/carvalhosauro/hound/issues/1)).
+
+### Done (shipped)
+
+| Phase | What landed | Outcome |
+|-------|-------------|---------|
+| **A** | `perf` + flamegraph @ `BM_SearchFuzzy/20000/2`; gate metrics frozen | Confirmed BK+Levenshtein ~83% CPU — guided SymSpell |
+| **B1–B5** | `FuzzyBackend` seam → SymSpell → default → BK demoted to oracle | Fuzzy @ 20k/d=2 **~−99%** vs old BK; golden recall held |
+| **C1–C2** | Adaptive edit distance by query length + HTTP/API override | Short queries no longer use d=2 by default |
+| **Baseline** | Human `save_baseline.sh` (SymSpell default) | `baselines/micro_baseline.json` = new `compare_bench` reference |
+
+**Accepted tradeoff (documented):** SymSpell ingest/`prepare` slower and RSS much
+higher (~400+ MB vs ~30 MB BK @ 20k probe). Use `--fuzzy-backend bk` when RAM
+or write churn dominates. Backend use cases: § below Phase B + README/AGENTS.
+
+### Not started yet
+
+| Phase | Theme | Notes |
+|-------|-------|-------|
+| **D** | Pluggable `Ranker` / tie-break | **Next** on the roadmap order |
+| **E** | Double-buffer / non-blocking writers | After D unless contention forces earlier |
+| **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
+| **G** | `fields=id`, SymSpell compound | Optional polish |
+| **#1** | Compress/intern SymSpell delete map | Performance follow-up (RSS + prepare) |
+
+### Suggested next steps (pick one)
+
+1. **D1** — `Ranker` interface + keep linear `ScoreMerger` as default (correctness + `BM_ScoreMerge`).
+2. **Issue #1** — reduce SymSpell delete-map RSS/`prepare` (measure Insert/20k + RSS probe).
+3. **E1** — mixed-load macro probe if production writes under search load matter first.
+
+Do not start ART/layout (**F**) without a new profile saying trie/layout is the
+bottleneck (search CPU already moved off BK/Lev).
 
 ---
 
@@ -127,7 +163,7 @@ Notes:
 | Learning | Status | Evidence |
 |----------|--------|----------|
 | ART + leaf posting lists | **Not applied** | Classic trie; postings = `unordered_set` of ids |
-| Worth migrating ART at N ~ thousands? | **Not now** | Dominant cost is BK-tree/Levenshtein, not prefix walk |
+| Worth migrating ART at N ~ thousands? | **Not now** | Pre-SymSpell bottleneck was BK/Lev; re-profile before ART (**F0**) |
 | Tie-break ranking pipeline | **Not applied** | Linear `ScoreMerger` only |
 
 ### 3. Xapian
@@ -141,7 +177,7 @@ Notes:
 
 | Learning | Status | Evidence |
 |----------|--------|----------|
-| Symmetric delete | **Default (B4)** — BK kept as opt-in/oracle | SymSpell default; lazy `prepare()`; ~−99% fuzzy@20k/d=2; insert slower (justified) |
+| Symmetric delete | **Default (B4/B5)** — BK oracle/escape | ~−99% fuzzy@20k/d=2; ingest/RSS cost accepted in baseline; [#1](https://github.com/carvalhosauro/hound/issues/1) for map compaction |
 | Compound / word split | **Not applied** | Normalizer collapses spaces only |
 | Practical distance ~2–3 | **Aligned** | Default max distance 2 |
 
@@ -243,7 +279,7 @@ Baseline reference (versioned `baselines/micro_baseline.json`, cpu_time):
 
 ---
 
-### Phase B — SymSpell / symmetric-delete (split slices)
+### Phase B — SymSpell / symmetric-delete ✅ (2026-07-23)
 
 **Goal:** Cut fuzzy latency/scalability without tanking recall on the golden
 path. Ship behind a clear seam so each slice is reviewable.
@@ -253,7 +289,7 @@ path. Ship behind a clear seam so each slice is reviewable.
 | **B1** | Design + interface only (`FuzzyBackend`); BK remains default | correctness only (no perf claim) | Compiles; tests prove BK path unchanged; no public API break | **Done** (2026-07-23) |
 | **B2** | Symmetric-delete index build (edits ≤2) + lookup; behind flag/compile switch | build RSS/time; lookup correctness vs BK on golden set | Unit/golden: same hits as BK on agreed fixture **or** documented intentional diffs | **Done** (2026-07-23) |
 | **B3** | Wire into `FuzzyIndex` search path (feature flag default off) | before/after `BM_SearchFuzzy/*`; temporary probe OK if untracked | Flag off = baseline parity; flag on shows target latency drop on 20k/d=2 | **Done** (2026-07-23) |
-| **B4** | Enable default **only if** metrics win | micro + recall@10 (or golden) | p50/p99 fuzzy improve vs Phase 0/micro baseline; recall@10 on happy path ≥ baseline; `save_baseline.sh` only after human accept | **Done** (2026-07-23) — SymSpell default; insert regression justified; baseline **not** saved |
+| **B4** | Enable default **only if** metrics win | micro + recall@10 (or golden) | p50/p99 fuzzy improve vs Phase 0/micro baseline; recall@10 on happy path ≥ baseline; `save_baseline.sh` only after human accept | **Done** (2026-07-23) — SymSpell default; baseline **accepted** same day |
 | **B5** | Remove or demote BK from hot path (keep as test oracle if useful) | micro + correctness | Dead code path gone or clearly non-default; suite still green | **Done** (2026-07-23) — BK in `bk_fuzzy_backend.hpp` as oracle/escape only |
 
 **Hot path:** SymSpell (`symspell_backend.hpp`). **Oracle/fallback:** `BkFuzzyBackend`
@@ -280,7 +316,7 @@ https://github.com/carvalhosauro/hound/issues/1
 
 ---
 
-### Phase C — Adaptive edit distance
+### Phase C — Adaptive edit distance ✅ (2026-07-23)
 
 **Goal:** Typo tolerance scales with term length (Sonic-style), without
 surprising short-token explosions.
@@ -311,16 +347,16 @@ HTTP: optional query param `max_edit_distance`; omit for adaptive.
 
 ---
 
-### Phase D — Pluggable ranking
+### Phase D — Pluggable ranking ← **next**
 
 **Goal:** Replace hard-wired `ScoreMerger` with a small interface; keep
 linear merge as default.
 
-| ID | Delivery | Measure | Done when |
-|----|----------|---------|-----------|
-| **D1** | `Ranker` interface + adapt current merger | unit + `BM_ScoreMerge` | Same scores as today on golden; ScoreMerge micro within gate |
-| **D2** | Typesense-style tie-break ranker (optional) | ranking fixture (order stability) | Fixture documents expected order; default ranker unchanged unless opted in |
-| **D3** | Wire optional ranker through HTTP (if needed) | macro smoke / integration | Query param or config documented; no breaking default JSON |
+| ID | Delivery | Measure | Done when | Status |
+|----|----------|---------|-----------|--------|
+| **D1** | `Ranker` interface + adapt current merger | unit + `BM_ScoreMerge` | Same scores as today on golden; ScoreMerge micro within gate | **pending** (start here) |
+| **D2** | Typesense-style tie-break ranker (optional) | ranking fixture (order stability) | Fixture documents expected order; default ranker unchanged unless opted in | pending |
+| **D3** | Wire optional ranker through HTTP (if needed) | macro smoke / integration | Query param or config documented; no breaking default JSON | pending |
 
 ---
 
@@ -624,6 +660,9 @@ Template for later slices:
 
 ## Future decisions
 
-1. On-disk compressed postings if snapshot rebuild/RSS hurts (**F2**).
-2. Revisit ART only if trie dominates after SymSpell (**F0→F1**).
-3. Optional `fields=id` projection without removing score fields (**G1**).
+1. **Next on roadmap:** pluggable `Ranker` (**D1**), then optional tie-break (**D2–D3**).
+2. **SymSpell footprint:** compress/intern delete map — [#1](https://github.com/carvalhosauro/hound/issues/1) (RSS + `prepare`).
+3. Mixed-load writers vs readers (**E1–E2**) if production contention shows up.
+4. Revisit ART / contiguous layout only after a post-SymSpell profile (**F0→F1**).
+5. On-disk compressed postings if snapshot rebuild/RSS hurts (**F2**).
+6. Optional `fields=id` projection without removing score fields (**G1**).
