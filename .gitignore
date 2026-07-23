@@ -1,0 +1,14 @@
+/build/
+/cmake-build-*/
+/.cache/
+/.omc/
+/.claude/
+/.code-review-graph/
+compile_commands.json
+*.o
+*.a
+*.so
+*.snap
+.DS_Store
+*.user
+CMakeUserPresets.json
