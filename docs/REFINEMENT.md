@@ -14,8 +14,9 @@ How to run the suite day-to-day: [`AGENTS.md`](../AGENTS.md),
 ## Status — where we stopped (2026-07-23)
 
 **Working on issue #1** (SymSpell delete-map RSS/`prepare`). Phases **A–D**
-complete on `main`. First #1 slice shipped: **uint32 word-id postings** in the
-delete map (see changelog).
+complete on `main`. #1 slices shipped: **uint32 word-id postings** + **tagged
+single/multi map values** (see changelog). SymSpell @20k RSS now ~**226 MB**
+(was ~418 MB before #1).
 
 Follow-up test gaps (optional hardening, not Phase D blockers):
 [#2](https://github.com/carvalhosauro/hound/issues/2) CLI/`HOUND_RANKER`,
@@ -32,14 +33,14 @@ Follow-up test gaps (optional hardening, not Phase D blockers):
 | **B1–B5** | `FuzzyBackend` seam → SymSpell → default → BK demoted to oracle | Fuzzy @ 20k/d=2 **~−99%** vs old BK; golden recall held |
 | **C1–C2** | Adaptive edit distance by query length + HTTP/API override | Short queries no longer use d=2 by default |
 | **D1–D3** | Pluggable `Ranker` → `TieBreakRanker` opt-in → CLI/HTTP wire | Default `ScoreMerger` + JSON unchanged; `?ranker=` / `--ranker` |
-| **#1 (slice)** | Delete postings store `uint32_t` word ids (not `string` copies) | RSS @20k **~418→327 MB** (−22%); prepare slightly faster; fuzzy gates OK |
+| **#1 (slices)** | uint32 postings + tagged single/multi delete values | RSS @20k **~418→226 MB** (−46%); Insert/prepare much faster; fuzzy OK |
 | **Baseline** | Human `save_baseline.sh` (SymSpell default) | `baselines/micro_baseline.json` = new `compare_bench` reference |
 
-**Accepted tradeoff (documented):** SymSpell ingest/`prepare` slower and RSS still
-higher than BK (~327 MB vs ~30 MB @ 20k probe after #1 slice). Use
+**Accepted tradeoff (documented):** SymSpell ingest/`prepare` still slower and RSS
+higher than BK (~226 MB vs ~30 MB @ 20k after #1 slices). Use
 `--fuzzy-backend bk` when RAM or write churn dominates. Backend use cases: §
-below Phase B + README/AGENTS. Further #1 ideas (intern delete keys, denser map,
-incremental deletes) remain open on the issue.
+below Phase B + README/AGENTS. Further #1 ideas (intern delete keys — *rejected*
+for SSO locality; denser open-addressing map; incremental deletes) remain open.
 
 ### Not started yet
 
@@ -48,14 +49,14 @@ incremental deletes) remain open on the issue.
 | **E** | Double-buffer / non-blocking writers | After more #1 / or if contention forces earlier |
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
-| **#1** | Remaining: intern delete keys, denser map, incremental deletes | [#1](https://github.com/carvalhosauro/hound/issues/1) still open |
+| **#1** | Remaining: denser hash map, incremental deletes | [#1](https://github.com/carvalhosauro/hound/issues/1) still open |
 | **#2–#5** | Ranker test hardening (CLI, aliases, macro, concurrency) | Optional; DoD for D already met |
 
 ### Suggested next steps (pick one)
 
-1. **#1 next slice** — intern/arena delete keys or denser hash map (measure RSS again).
+1. **#1 next slice** — denser open-addressing delete map or incremental deletes.
 2. **E1** — mixed-load macro probe if production writes under search load matter.
-3. **#2–#5** — optional ranker test hardening (or **G1** `fields=id` polish).
+3. **Human** — consider `save_baseline.sh` after #1 Insert wins (optional).
 
 Do not start ART/layout (**F**) without a new profile saying trie/layout is the
 bottleneck (search CPU already moved off BK/Lev).
@@ -319,10 +320,10 @@ file: Insert/20k ~2703 ms; SearchFuzzy/20k/2 ~7.3 µs; SearchExact/20k ~0.91 µs
 
 | Backend | How to select | Prefer when | Cost profile (@ ~20k synthetic) |
 |---------|---------------|-------------|----------------------------------|
-| **SymSpell** | **Default**; `--fuzzy-backend symspell` | Bulk load → serve; query latency dominates | Search ~µs; `prepare`/ingest slow; RSS ~**327 MB** @20k after #1 uint32 postings (was ~418 MB) |
+| **SymSpell** | **Default**; `--fuzzy-backend symspell` | Bulk load → serve; query latency dominates | Search ~µs; `prepare`/ingest improved after #1; RSS ~**226 MB** @20k (was ~418 MB) |
 | **BK-tree** | `--fuzzy-backend bk`, `HOUND_FUZZY_BACKEND=bk`, `-DHOUND_DEFAULT_FUZZY_BACKEND_BK` | RAM-constrained; frequent writes; test oracle | Search ~ms; ingest/RSS cheaper (~**30 MB** probe) |
 
-Open follow-up: further SymSpell map compaction (intern delete keys, denser map) —
+Open follow-up: denser delete map / incremental deletes —
 https://github.com/carvalhosauro/hound/issues/1
 
 ---
@@ -468,6 +469,29 @@ Typesense-style lexicographic order (default Typesense
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Issue #1 slice: tagged single/multi delete values
+
+```text
+Hypothesis: Most delete keys hit one word; store uint32 id directly in the map
+            (MSB clear) and only allocate vector postings when a key collides
+            (MSB set → index). One lookup; much less vector heap overhead.
+Primary metric(s):   RSS @20k; BM_Insert/20000; BM_SearchFuzzy/20000/{1,2}
+Secondary metric(s): prepare_ms; golden BK↔SymSpell parity
+Before: uint32-vector slice — rss≈327 MB; Insert≈1456 ms; Fuzzy/2≈5.56 µs
+After:  tagged map — rss≈226 MB; Insert≈834 ms; Fuzzy/2≈5.60 µs
+Correctness: ./scripts/run_correctness.sh — pass
+Micro gate:  vs baseline pass (Insert −69%, Fuzzy faster/ok)
+DoD items:   [x] measured  [x] tagged values  [x] parity  [x] no fuzzy regress
+Decision:    ship — arena/string_view keys rejected earlier (SSO locality)
+```
+
+- Rejected earlier this session: byte-arena + `string_view` keys — RSS −25 MB but
+  `BM_SearchFuzzy/20000/2` missed the +10% gate (avg delete key ~14 B → SSO).
+- Split one/multi maps: great RSS but two probes on miss → fuzzy regress; replaced
+  by tagged single-map design.
+- Metrics vs pre-#1 (~418 MB / slow Insert): RSS **−46%**, Insert much faster.
+- Decision: **ship**; #1 still open for denser open-addressing / incremental deletes.
 
 ### 2026-07-23 — Issue #1 slice: uint32 delete postings
 

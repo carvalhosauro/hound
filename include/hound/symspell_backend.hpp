@@ -23,8 +23,9 @@ namespace hound {
 // Dictionary updates are cheap; the delete map is rebuilt lazily on search/prepare
 // (B4) so bulk ingest stays viable while lookup stays fast.
 //
-// Issue #1 slice: delete posting lists store dictionary word ids (uint32_t)
-// instead of duplicated std::string copies of each word.
+// Issue #1: posting lists use uint32 word ids. Map value is either a single
+// word id (MSB clear) or an index into multi_postings_ (MSB set) so the common
+// 1-hit delete keys avoid vector overhead while search stays one lookup.
 class SymSpellFuzzyBackend final : public FuzzyBackend {
  public:
   explicit SymSpellFuzzyBackend(int max_dictionary_edit_distance = 2)
@@ -73,6 +74,21 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
         candidates.insert(wit->second);
       }
     };
+    auto collect_deletes = [&](const std::string& key) {
+      auto dit = deletes_.find(key);
+      if (dit == deletes_.end()) {
+        return;
+      }
+      const std::uint32_t ref = dit->second;
+      if ((ref & kMultiFlag) == 0) {
+        consider_word_id(ref);
+        return;
+      }
+      const std::uint32_t idx = ref & kMultiMask;
+      for (const std::uint32_t wid : multi_postings_[idx]) {
+        consider_word_id(wid);
+      }
+    };
 
     consider_word(std::string(query));
 
@@ -80,21 +96,10 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
     generate_deletes(std::string(query), gen_edits, query_deletes);
     for (const auto& del : query_deletes) {
       consider_word(del);
-      auto dit = deletes_.find(del);
-      if (dit == deletes_.end()) {
-        continue;
-      }
-      for (const std::uint32_t wid : dit->second) {
-        consider_word_id(wid);
-      }
+      collect_deletes(del);
     }
 
-    auto qit = deletes_.find(std::string(query));
-    if (qit != deletes_.end()) {
-      for (const std::uint32_t wid : qit->second) {
-        consider_word_id(wid);
-      }
-    }
+    collect_deletes(std::string(query));
 
     for (const std::uint32_t wid : candidates) {
       const std::string& word = words_by_id_[wid];
@@ -115,6 +120,7 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
     std::lock_guard lock(rebuild_mu_);
     dictionary_.clear();
     deletes_.clear();
+    multi_postings_.clear();
     words_by_id_.clear();
     word_to_id_.clear();
     deletes_ready_ = true;
@@ -126,10 +132,14 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
   int max_dictionary_edit_distance() const { return max_dict_edits_; }
 
  private:
+  static constexpr std::uint32_t kMultiFlag = 0x80000000u;
+  static constexpr std::uint32_t kMultiMask = 0x7fffffffu;
+
   void mark_deletes_dirty() {
     std::lock_guard lock(rebuild_mu_);
     deletes_ready_ = false;
     deletes_.clear();
+    multi_postings_.clear();
     words_by_id_.clear();
     word_to_id_.clear();
   }
@@ -140,12 +150,14 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
       return;
     }
     deletes_.clear();
+    multi_postings_.clear();
     words_by_id_.clear();
     word_to_id_.clear();
     words_by_id_.reserve(dictionary_.size());
     word_to_id_.reserve(dictionary_.size());
-    // Rough reserve: each word contributes O(len^2) deletes at distance 2.
-    deletes_.reserve(dictionary_.size() * 8);
+    // ~O(len^2) unique deletes/word at d=2; probe @20k ≈ 120× words.
+    deletes_.reserve(dictionary_.size() * 120);
+    multi_postings_.reserve(dictionary_.size() * 16);
     for (const auto& [word, ids] : dictionary_) {
       if (ids.empty()) {
         continue;
@@ -162,8 +174,24 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
     std::vector<std::string> dels;
     generate_deletes(word, max_dict_edits_, dels);
     for (auto& del : dels) {
-      deletes_[std::move(del)].push_back(word_id);
+      add_delete_posting(std::move(del), word_id);
     }
+  }
+
+  void add_delete_posting(std::string del, std::uint32_t word_id) const {
+    auto [it, inserted] = deletes_.try_emplace(std::move(del), word_id);
+    if (inserted) {
+      return;  // first hit — store word id directly
+    }
+    std::uint32_t& ref = it->second;
+    if ((ref & kMultiFlag) == 0) {
+      const std::uint32_t first = ref;
+      const auto idx = static_cast<std::uint32_t>(multi_postings_.size());
+      multi_postings_.push_back({first, word_id});
+      ref = idx | kMultiFlag;
+      return;
+    }
+    multi_postings_[ref & kMultiMask].push_back(word_id);
   }
 
   // Deletes at edit distance 1..max_edits (not including the original word).
@@ -201,8 +229,9 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
 
   int max_dict_edits_;
   std::unordered_map<std::string, std::vector<std::string>> dictionary_;
-  // Delete key → dictionary word ids (into words_by_id_ after prepare).
-  mutable std::unordered_map<std::string, std::vector<std::uint32_t>> deletes_;
+  // Delete key → word id (MSB clear) or multi_postings_ index (MSB set).
+  mutable std::unordered_map<std::string, std::uint32_t> deletes_;
+  mutable std::vector<std::vector<std::uint32_t>> multi_postings_;
   mutable std::vector<std::string> words_by_id_;
   mutable std::unordered_map<std::string, std::uint32_t> word_to_id_;
   mutable bool deletes_ready_ = true;

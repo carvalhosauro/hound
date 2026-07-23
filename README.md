@@ -65,7 +65,7 @@ Binaries:
 
 | Backend | Select | Best when | Tradeoff (≈20k synthetic docs) |
 |---------|--------|-----------|--------------------------------|
-| **SymSpell** (default) | omit flag, or `--fuzzy-backend symspell` | Bulk load once (or rare writes), then many autocomplete queries | Fuzzy search ~**µs**; ingest + delete-map build slower; RSS higher (~**327 MB** vs ~**30 MB** BK @ 20k after #1 uint32 postings; was ~418 MB) |
+| **SymSpell** (default) | omit flag, or `--fuzzy-backend symspell` | Bulk load once (or rare writes), then many autocomplete queries | Fuzzy search ~**µs**; ingest improved after #1; RSS ~**226 MB** vs ~**30 MB** BK @ 20k (was ~418 MB) |
 | **BK-tree** | `--fuzzy-backend bk` or `HOUND_FUZZY_BACKEND=bk` | Tight RAM, frequent upserts/rebuilds, or BK as test oracle | Ingest/RSS cheaper; fuzzy search ~**ms** at 20k (Levenshtein-heavy) |
 
 Compile-time default override: `-DHOUND_DEFAULT_FUZZY_BACKEND_BK`.
