@@ -13,12 +13,11 @@ How to run the suite day-to-day: [`AGENTS.md`](../AGENTS.md),
 
 ## Status — where we stopped (2026-07-23)
 
-**Working on issue #1** (SymSpell delete-map RSS/`prepare`). Phases **A–D**
-complete on `main`. #1 slices shipped: **uint32 word-id postings** + **tagged
-single/multi map values** (see changelog). SymSpell @20k RSS now ~**226 MB**
-(was ~418 MB before #1).
+**Phase D + issue #1 complete.** Phases **A–D** and SymSpell delete-map
+compaction ([#1](https://github.com/carvalhosauro/hound/issues/1) **closed**)
+are on `main`. SymSpell @20k RSS ~**226 MB** (was ~418 MB).
 
-Follow-up test gaps (optional hardening, not Phase D blockers):
+Follow-up test gaps (optional hardening, not blockers):
 [#2](https://github.com/carvalhosauro/hound/issues/2) CLI/`HOUND_RANKER`,
 [#3](https://github.com/carvalhosauro/hound/issues/3) HTTP aliases,
 [#4](https://github.com/carvalhosauro/hound/issues/4) macro smoke,
@@ -33,30 +32,29 @@ Follow-up test gaps (optional hardening, not Phase D blockers):
 | **B1–B5** | `FuzzyBackend` seam → SymSpell → default → BK demoted to oracle | Fuzzy @ 20k/d=2 **~−99%** vs old BK; golden recall held |
 | **C1–C2** | Adaptive edit distance by query length + HTTP/API override | Short queries no longer use d=2 by default |
 | **D1–D3** | Pluggable `Ranker` → `TieBreakRanker` opt-in → CLI/HTTP wire | Default `ScoreMerger` + JSON unchanged; `?ranker=` / `--ranker` |
-| **#1 (slices)** | uint32 postings + tagged single/multi delete values | RSS @20k **~418→226 MB** (−46%); Insert/prepare much faster; fuzzy OK |
+| **#1** | uint32 postings + tagged single/multi delete values | RSS @20k **~418→226 MB** (−46%); Insert/prepare faster; fuzzy OK; **closed** |
 | **Baseline** | Human `save_baseline.sh` (SymSpell default) | `baselines/micro_baseline.json` = new `compare_bench` reference |
 
 **Accepted tradeoff (documented):** SymSpell ingest/`prepare` still slower and RSS
-higher than BK (~226 MB vs ~30 MB @ 20k after #1 slices). Use
-`--fuzzy-backend bk` when RAM or write churn dominates. Backend use cases: §
-below Phase B + README/AGENTS. Further #1 ideas (intern delete keys — *rejected*
-for SSO locality; denser open-addressing map; incremental deletes) remain open.
+higher than BK (~226 MB vs ~30 MB @ 20k). Use `--fuzzy-backend bk` when RAM or
+write churn dominates. Further SymSpell ideas (denser open-addressing map,
+incremental deletes) stay in the roadmap below — **no new GitHub issues** until
+there is concrete pain or a planned slice.
 
 ### Not started yet
 
 | Phase | Theme | Notes |
 |-------|-------|-------|
-| **E** | Double-buffer / non-blocking writers | After more #1 / or if contention forces earlier |
+| **E** | Double-buffer / non-blocking writers | **Next** on the roadmap order |
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
-| **#1** | Remaining: denser hash map, incremental deletes | [#1](https://github.com/carvalhosauro/hound/issues/1) still open |
 | **#2–#5** | Ranker test hardening (CLI, aliases, macro, concurrency) | Optional; DoD for D already met |
 
 ### Suggested next steps (pick one)
 
-1. **#1 next slice** — denser open-addressing delete map or incremental deletes.
-2. **E1** — mixed-load macro probe if production writes under search load matter.
-3. **Human** — consider `save_baseline.sh` after #1 Insert wins (optional).
+1. **E1** — mixed-load macro probe if production writes under search load matter.
+2. **Human** — optional `save_baseline.sh` to lock faster Insert after #1.
+3. **#2–#5** — optional ranker test hardening (or **G1** `fields=id` polish).
 
 Do not start ART/layout (**F**) without a new profile saying trie/layout is the
 bottleneck (search CPU already moved off BK/Lev).
@@ -189,7 +187,7 @@ Notes:
 
 | Learning | Status | Evidence |
 |----------|--------|----------|
-| Symmetric delete | **Default (B4/B5)** — BK oracle/escape | ~−99% fuzzy@20k/d=2; ingest/RSS cost accepted in baseline; [#1](https://github.com/carvalhosauro/hound/issues/1) for map compaction |
+| Symmetric delete | **Default (B4/B5)** — BK oracle/escape | ~−99% fuzzy@20k/d=2; RSS/`prepare` cut in [#1](https://github.com/carvalhosauro/hound/issues/1) (closed; ~418→226 MB @20k) |
 | Compound / word split | **Not applied** | Normalizer collapses spaces only |
 | Practical distance ~2–3 | **Aligned** | Default max distance 2 |
 
@@ -323,8 +321,8 @@ file: Insert/20k ~2703 ms; SearchFuzzy/20k/2 ~7.3 µs; SearchExact/20k ~0.91 µs
 | **SymSpell** | **Default**; `--fuzzy-backend symspell` | Bulk load → serve; query latency dominates | Search ~µs; `prepare`/ingest improved after #1; RSS ~**226 MB** @20k (was ~418 MB) |
 | **BK-tree** | `--fuzzy-backend bk`, `HOUND_FUZZY_BACKEND=bk`, `-DHOUND_DEFAULT_FUZZY_BACKEND_BK` | RAM-constrained; frequent writes; test oracle | Search ~ms; ingest/RSS cheaper (~**30 MB** probe) |
 
-Open follow-up: denser delete map / incremental deletes —
-https://github.com/carvalhosauro/hound/issues/1
+Open follow-ups (roadmap only, no GitHub issue yet): denser open-addressing
+delete map; incremental deletes on upsert — open an issue when scheduling work.
 
 ---
 
@@ -491,7 +489,7 @@ Decision:    ship — arena/string_view keys rejected earlier (SSO locality)
 - Split one/multi maps: great RSS but two probes on miss → fuzzy regress; replaced
   by tagged single-map design.
 - Metrics vs pre-#1 (~418 MB / slow Insert): RSS **−46%**, Insert much faster.
-- Decision: **ship**; #1 still open for denser open-addressing / incremental deletes.
+- Decision: **ship**; later **#1 closed** after this + uint32 slice met acceptance.
 
 ### 2026-07-23 — Issue #1 slice: uint32 delete postings
 
@@ -878,9 +876,10 @@ Template for later slices:
 
 ## Future decisions
 
-1. **Next on roadmap:** mixed-load writers vs readers (**E1–E2**), or SymSpell
-   footprint **#1**, depending on production pain.
-2. **SymSpell footprint:** compress/intern delete map — [#1](https://github.com/carvalhosauro/hound/issues/1) (RSS + `prepare`).
+1. **Next on roadmap:** mixed-load writers vs readers (**E1–E2**), or optional
+   `save_baseline.sh` after #1 Insert wins.
+2. **SymSpell further compaction** (denser map / incremental deletes): only if RSS
+   or write-churn still hurts — file a new issue when starting that slice.
 3. **Ranker test hardening (optional):** [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5).
 4. Revisit ART / contiguous layout only after a post-SymSpell profile (**F0→F1**).
 5. On-disk compressed postings if snapshot rebuild/RSS hurts (**F2**).
