@@ -102,6 +102,7 @@ if(HOUND_BUILD_TESTS)
       tests/unit/test_adaptive_edit_distance.cpp
       tests/unit/test_fuzzy_index.cpp
       tests/unit/test_score_merger.cpp
+      tests/unit/test_tie_break_ranker.cpp
       tests/unit/test_bulk_loader.cpp
       tests/unit/test_snapshot.cpp
       tests/golden/test_golden.cpp

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -11,6 +12,7 @@
 #include <vector>
 
 #include "hound/document.hpp"
+#include "hound/ranker.hpp"
 
 namespace hound {
 
@@ -18,7 +20,8 @@ struct ScoreMergerConfig {
   double alpha = 0.7;  // weight on text relevance
 };
 
-class ScoreMerger {
+// Default Ranker: linear α·text + (1-α)·norm(external), then score desc / id asc.
+class ScoreMerger final : public Ranker {
  public:
   explicit ScoreMerger(ScoreMergerConfig config = {}) : config_(config) {}
 
@@ -28,12 +31,27 @@ class ScoreMerger {
 
   double alpha() const { return config_.alpha; }
 
+  // Ranker API — uses RankOptions::alpha (clamped). Preferred for shared Ranker.
+  std::vector<SearchHit> rank(std::vector<SearchHit> candidates,
+                              RankOptions opt = {}) const override {
+    return merge_with_alpha(std::move(candidates), opt.alpha);
+  }
+
+  // Convenience: uses ScoreMergerConfig::alpha (standalone / unit tests).
+  std::vector<SearchHit> merge(std::vector<SearchHit> candidates) const {
+    return merge_with_alpha(std::move(candidates), config_.alpha);
+  }
+
+ private:
   // Candidates carry raw text relevance in [0,1] and external scores.
   // External scores are min-max normalized within the candidate set.
-  std::vector<SearchHit> merge(std::vector<SearchHit> candidates) const {
+  std::vector<SearchHit> merge_with_alpha(std::vector<SearchHit> candidates,
+                                          double alpha) const {
     if (candidates.empty()) {
       return candidates;
     }
+
+    alpha = std::clamp(alpha, 0.0, 1.0);
 
     double min_ext = std::numeric_limits<double>::infinity();
     double max_ext = -std::numeric_limits<double>::infinity();
@@ -47,7 +65,7 @@ class ScoreMerger {
       const double text = std::clamp(c.text_relevance, 0.0, 1.0);
       const double ext_norm =
           (span <= 0.0) ? 1.0 : (c.external_score - min_ext) / span;
-      c.score = config_.alpha * text + (1.0 - config_.alpha) * ext_norm;
+      c.score = alpha * text + (1.0 - alpha) * ext_norm;
     }
 
     std::stable_sort(candidates.begin(), candidates.end(),
@@ -60,9 +78,12 @@ class ScoreMerger {
     return candidates;
   }
 
- private:
   ScoreMergerConfig config_;
 };
+
+inline std::unique_ptr<Ranker> make_default_ranker() {
+  return std::make_unique<ScoreMerger>();
+}
 
 // Convert edit distance to text relevance in [0,1].
 inline double distance_to_relevance(int distance, int max_distance) {

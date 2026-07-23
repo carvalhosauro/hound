@@ -17,7 +17,7 @@
 #include "hound/document.hpp"
 #include "hound/symspell_backend.hpp"  // FuzzyBackend + factory (SymSpell default)
 #include "hound/normalizer.hpp"
-#include "hound/score_merger.hpp"
+#include "hound/ranker_factory.hpp"
 #include "hound/trie.hpp"
 
 namespace hound {
@@ -28,16 +28,23 @@ struct SearchOptions {
   // nullopt → adaptive table (Phase C). Explicit int → fixed distance (override).
   std::optional<int> max_edit_distance;
   std::size_t prefix_candidate_limit = 64;
+  // nullopt → index-owned Ranker. Explicit → per-query override (Phase D3).
+  std::optional<RankerKind> ranker;
 };
 
 // Thread-safe in-memory index: shared locks for search, unique for mutations.
 // Fuzzy dictionary is pluggable via FuzzyBackend (default: SymSpell after B4).
+// Ranking is pluggable via Ranker (default: ScoreMerger linear blend).
 class FuzzyIndex {
  public:
-  explicit FuzzyIndex(std::unique_ptr<FuzzyBackend> fuzzy = make_default_fuzzy_backend())
-      : fuzzy_(std::move(fuzzy)) {
+  explicit FuzzyIndex(std::unique_ptr<FuzzyBackend> fuzzy = make_default_fuzzy_backend(),
+                      std::unique_ptr<Ranker> ranker = make_default_ranker())
+      : fuzzy_(std::move(fuzzy)), ranker_(std::move(ranker)) {
     if (!fuzzy_) {
       fuzzy_ = make_default_fuzzy_backend();
+    }
+    if (!ranker_) {
+      ranker_ = make_default_ranker();
     }
   }
 
@@ -162,8 +169,14 @@ class FuzzyIndex {
       candidates.push_back(std::move(hit));
     }
 
-    ScoreMerger merger{{opt.alpha}};
-    auto ranked = merger.merge(std::move(candidates));
+    std::vector<SearchHit> ranked;
+    if (opt.ranker.has_value()) {
+      // Per-query override (HTTP ?ranker=); ephemeral ranker is empty/cheap.
+      auto override_ranker = make_ranker(*opt.ranker);
+      ranked = override_ranker->rank(std::move(candidates), RankOptions{opt.alpha});
+    } else {
+      ranked = ranker_->rank(std::move(candidates), RankOptions{opt.alpha});
+    }
     if (ranked.size() > opt.limit) {
       ranked.resize(opt.limit);
     }
@@ -175,6 +188,7 @@ class FuzzyIndex {
   std::unordered_map<std::string, Document> docs_;
   Trie trie_;
   std::unique_ptr<FuzzyBackend> fuzzy_;
+  std::unique_ptr<Ranker> ranker_;
 };
 
 }  // namespace hound

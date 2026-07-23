@@ -1,5 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <memory>
+
 #include "hound/fuzzy_index.hpp"
 
 TEST_CASE("fuzzy index upsert search delete", "[fuzzy_index]") {
@@ -147,4 +150,43 @@ TEST_CASE("fuzzy index adaptive distance allows medium typos", "[fuzzy_index][ad
     }
   }
   REQUIRE(found);
+}
+
+namespace {
+
+class CountingRanker : public hound::Ranker {
+ public:
+  mutable int calls = 0;
+
+  std::vector<hound::SearchHit> rank(std::vector<hound::SearchHit> candidates,
+                                     hound::RankOptions) const override {
+    ++calls;
+    for (auto& c : candidates) {
+      c.score = c.text_relevance;
+    }
+    std::stable_sort(candidates.begin(), candidates.end(),
+                     [](const hound::SearchHit& a, const hound::SearchHit& b) {
+                       if (a.score != b.score) {
+                         return a.score > b.score;
+                       }
+                       return a.id < b.id;
+                     });
+    return candidates;
+  }
+};
+
+}  // namespace
+
+TEST_CASE("FuzzyIndex accepts injected Ranker", "[fuzzy_index][ranker][d1]") {
+  auto ranker = std::make_unique<CountingRanker>();
+  auto* raw = ranker.get();
+  hound::FuzzyIndex idx(hound::make_default_fuzzy_backend(), std::move(ranker));
+
+  idx.upsert({"1", "Alpha Ridge", 10.0});
+  idx.upsert({"2", "Alpine Lake", 5.0});
+
+  REQUIRE(raw->calls == 0);
+  auto hits = idx.search("alpha", {.limit = 5, .alpha = 1.0});
+  REQUIRE(raw->calls == 1);
+  REQUIRE_FALSE(hits.empty());
 }
