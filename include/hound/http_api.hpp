@@ -1,8 +1,10 @@
 #pragma once
 
+#include <algorithm>
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
@@ -17,6 +19,10 @@ class HttpApi {
  public:
   explicit HttpApi(FuzzyIndex& index, std::string snapshot_path = {})
       : index_(index), snapshot_path_(std::move(snapshot_path)) {
+    // Concurrent request handling (default is also a thread pool; set explicitly).
+    server_.new_task_queue = [] {
+      return new httplib::ThreadPool(std::max(4u, std::thread::hardware_concurrency()));
+    };
     setup_routes();
   }
 
@@ -113,11 +119,8 @@ class HttpApi {
           opt.alpha = std::stod(req.get_param_value("alpha"));
         }
         const std::string q = req.get_param_value("q");
-        std::vector<SearchHit> hits;
-        {
-          std::lock_guard lock(mu_);
-          hits = index_.search(q, opt);
-        }
+        // FuzzyIndex is internally synchronized; do not hold API write lock on reads.
+        auto hits = index_.search(q, opt);
         nlohmann::json arr = nlohmann::json::array();
         for (const auto& h : hits) {
           arr.push_back({{"id", h.id},
