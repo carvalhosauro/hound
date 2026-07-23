@@ -118,6 +118,10 @@ class HttpApi {
         if (req.has_param("alpha")) {
           opt.alpha = std::stod(req.get_param_value("alpha"));
         }
+        // Optional fixed override; omit for adaptive length→distance (Phase C).
+        if (req.has_param("max_edit_distance")) {
+          opt.max_edit_distance = std::stoi(req.get_param_value("max_edit_distance"));
+        }
         const std::string q = req.get_param_value("q");
         // FuzzyIndex is internally synchronized; do not hold API write lock on reads.
         auto hits = index_.search(q, opt);

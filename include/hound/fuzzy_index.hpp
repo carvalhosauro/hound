@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "hound/adaptive_edit_distance.hpp"
 #include "hound/document.hpp"
 #include "hound/symspell_backend.hpp"  // FuzzyBackend + factory (SymSpell default)
 #include "hound/normalizer.hpp"
@@ -24,7 +25,8 @@ namespace hound {
 struct SearchOptions {
   std::size_t limit = 10;
   double alpha = 0.7;
-  int max_edit_distance = 2;
+  // nullopt → adaptive table (Phase C). Explicit int → fixed distance (override).
+  std::optional<int> max_edit_distance;
   std::size_t prefix_candidate_limit = 64;
 };
 
@@ -108,6 +110,7 @@ class FuzzyIndex {
 
   std::vector<SearchHit> search(std::string_view query, SearchOptions opt = {}) const {
     const std::string q = normalize(query);
+    const int max_edits = resolve_max_edit_distance(q.size(), opt.max_edit_distance);
     std::unordered_map<std::string, SearchHit> by_id;
 
     auto consider = [&](const std::string& id, int distance, bool prefix_bonus) {
@@ -115,7 +118,7 @@ class FuzzyIndex {
       if (dit == docs_.end()) {
         return;
       }
-      double rel = distance_to_relevance(distance, opt.max_edit_distance);
+      double rel = distance_to_relevance(distance, max_edits);
       if (prefix_bonus) {
         rel = std::min(1.0, rel + 0.15);
       }
@@ -138,13 +141,13 @@ class FuzzyIndex {
         for (const auto& [key, ids] : comps) {
           const int dist =
               static_cast<int>(key.size() >= q.size() ? key.size() - q.size() : 0);
-          const int edit = (key == q) ? 0 : std::min(dist, opt.max_edit_distance);
+          const int edit = (key == q) ? 0 : std::min(dist, max_edits);
           for (const auto& id : ids) {
             consider(id, edit, true);
           }
         }
 
-        auto fuzzy = fuzzy_->search(q, opt.max_edit_distance);
+        auto fuzzy = fuzzy_->search(q, max_edits);
         for (const auto& m : fuzzy) {
           for (const auto& id : m.ids) {
             consider(id, m.distance, false);

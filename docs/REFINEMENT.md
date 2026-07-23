@@ -120,7 +120,7 @@ Notes:
 |----------|--------|----------|
 | Periodic background consolidation | **Not applied** | Upsert updates Trie+BK immediately; HTTP may snapshot under lock |
 | API returns IDs only; business outside core | **Partial** | Core is domain-agnostic; `/search` still returns scores; merge runs inside sidecar |
-| Typo tolerance ∝ term length | **Not applied** | Fixed `max_edit_distance` (default 2) |
+| Typo tolerance ∝ term length | **Applied (Phase C)** | Adaptive table in `adaptive_edit_distance.hpp`; optional override |
 
 ### 2. Typesense
 
@@ -276,7 +276,7 @@ surprising short-token explosions.
 | ID | Delivery | Measure | Done when | Status |
 |----|----------|---------|-----------|--------|
 | **C1** | Spec: length → max distance table + tests | golden cases (short/medium/long) | Table documented; unit tests lock behavior | **Done** (2026-07-23) |
-| **C2** | Implement + optional API override | micro fuzzy + quality fixture | Default behavior documented; override preserves old fixed-d tests; no >10% micro regression unexplained | pending |
+| **C2** | Implement + optional API override | micro fuzzy + quality fixture | Default behavior documented; override preserves old fixed-d tests; no >10% micro regression unexplained | **Done** (2026-07-23) |
 
 #### C1 — Length → max distance table
 
@@ -289,9 +289,13 @@ Documented in `include/hound/adaptive_edit_distance.hpp` and locked by
 | 3 … 5 | 1 |
 | 6+ | 2 |
 
-`resolve_max_edit_distance(len, override)` returns `override` when set (C2 will
-wire `SearchOptions`); otherwise the table above. Cap 2 aligns with SymSpell
-delete depth (Phase B).
+#### C2 — Wired into search
+
+`SearchOptions::max_edit_distance` is `std::optional<int>`:
+- **omit / nullopt** → adaptive table (default)
+- **explicit value** → fixed override (unit/golden/micro keep passing `.max_edit_distance = N`)
+
+HTTP: optional query param `max_edit_distance`; omit for adaptive.
 
 ---
 
@@ -359,6 +363,25 @@ linear merge as default.
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Phase C2 wire adaptive edit distance into search
+
+```text
+Hypothesis: Default searches use the C1 length→distance table; explicit
+            max_edit_distance override preserves fixed-d tests/benches.
+Primary metric(s):   unit adaptive behavior; golden with explicit d=2
+Secondary metric(s): micro (benches pass explicit d — expect parity)
+Correctness: ./scripts/run_correctness.sh — pass
+Micro gate:  benches unchanged (explicit max_edit_distance)
+DoD items:   [x] wired  [x] override  [x] docs  [x] suite green
+Decision:    ship — Phase C complete
+```
+
+- `SearchOptions::max_edit_distance` is now `optional<int>` (nullopt = adaptive)
+- HTTP: `?max_edit_distance=N` optional override
+- Correctness: pass
+- Micro gate: N/A delta expected (bench args still fixed)
+- Decision: **ship**
 
 ### 2026-07-23 — Phase C1 adaptive edit-distance table
 

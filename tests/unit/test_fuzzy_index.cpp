@@ -116,3 +116,35 @@ TEST_CASE("fuzzy index duplicate id upsert", "[fuzzy_index]") {
   REQUIRE(doc.has_value());
   REQUIRE(doc->external_score == 9.0);
 }
+
+TEST_CASE("fuzzy index adaptive distance suppresses tiny-query typos", "[fuzzy_index][adaptive][c2]") {
+  hound::FuzzyIndex idx;
+  idx.upsert({"1", "ab", 1.0});  // normalized len 2 → adaptive d=0
+  // Typo at distance 1 should not match under adaptive default.
+  auto hits = idx.search("ax", {.limit = 10});
+  for (const auto& h : hits) {
+    REQUIRE(h.id != "1");
+  }
+  // Explicit override restores fixed d=1 behavior.
+  auto forced = idx.search("ax", {.limit = 10, .max_edit_distance = 1});
+  bool found = false;
+  for (const auto& h : forced) {
+    if (h.id == "1") {
+      found = true;
+    }
+  }
+  REQUIRE(found);
+}
+
+TEST_CASE("fuzzy index adaptive distance allows medium typos", "[fuzzy_index][adaptive][c2]") {
+  hound::FuzzyIndex idx;
+  idx.upsert({"1", "Alpha Ridge", 1.0});  // normalized longer than 5 → d=2
+  auto hits = idx.search("alpga ridge", {.limit = 10});
+  bool found = false;
+  for (const auto& h : hits) {
+    if (h.id == "1") {
+      found = true;
+    }
+  }
+  REQUIRE(found);
+}
