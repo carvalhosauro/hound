@@ -13,9 +13,9 @@ How to run the suite day-to-day: [`AGENTS.md`](../AGENTS.md),
 
 ## Status — where we stopped (2026-07-23)
 
-**Phase D complete (D1–D3).** Phases **A–D** are done and committed on `main`
-(`515569e`, `65e8a46`, `9e0a490`). Next planned slices: **E1** (mixed-load
-concurrency probe) or **#1** (SymSpell RSS/`prepare`).
+**Working on issue #1** (SymSpell delete-map RSS/`prepare`). Phases **A–D**
+complete on `main`. First #1 slice shipped: **uint32 word-id postings** in the
+delete map (see changelog).
 
 Follow-up test gaps (optional hardening, not Phase D blockers):
 [#2](https://github.com/carvalhosauro/hound/issues/2) CLI/`HOUND_RANKER`,
@@ -32,26 +32,29 @@ Follow-up test gaps (optional hardening, not Phase D blockers):
 | **B1–B5** | `FuzzyBackend` seam → SymSpell → default → BK demoted to oracle | Fuzzy @ 20k/d=2 **~−99%** vs old BK; golden recall held |
 | **C1–C2** | Adaptive edit distance by query length + HTTP/API override | Short queries no longer use d=2 by default |
 | **D1–D3** | Pluggable `Ranker` → `TieBreakRanker` opt-in → CLI/HTTP wire | Default `ScoreMerger` + JSON unchanged; `?ranker=` / `--ranker` |
+| **#1 (slice)** | Delete postings store `uint32_t` word ids (not `string` copies) | RSS @20k **~418→327 MB** (−22%); prepare slightly faster; fuzzy gates OK |
 | **Baseline** | Human `save_baseline.sh` (SymSpell default) | `baselines/micro_baseline.json` = new `compare_bench` reference |
 
-**Accepted tradeoff (documented):** SymSpell ingest/`prepare` slower and RSS much
-higher (~400+ MB vs ~30 MB BK @ 20k probe). Use `--fuzzy-backend bk` when RAM
-or write churn dominates. Backend use cases: § below Phase B + README/AGENTS.
+**Accepted tradeoff (documented):** SymSpell ingest/`prepare` slower and RSS still
+higher than BK (~327 MB vs ~30 MB @ 20k probe after #1 slice). Use
+`--fuzzy-backend bk` when RAM or write churn dominates. Backend use cases: §
+below Phase B + README/AGENTS. Further #1 ideas (intern delete keys, denser map,
+incremental deletes) remain open on the issue.
 
 ### Not started yet
 
 | Phase | Theme | Notes |
 |-------|-------|-------|
-| **E** | Double-buffer / non-blocking writers | **Next** on the roadmap order |
+| **E** | Double-buffer / non-blocking writers | After more #1 / or if contention forces earlier |
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
-| **#1** | Compress/intern SymSpell delete map | Performance follow-up (RSS + prepare) |
+| **#1** | Remaining: intern delete keys, denser map, incremental deletes | [#1](https://github.com/carvalhosauro/hound/issues/1) still open |
 | **#2–#5** | Ranker test hardening (CLI, aliases, macro, concurrency) | Optional; DoD for D already met |
 
 ### Suggested next steps (pick one)
 
-1. **E1** — mixed-load macro probe if production writes under search load matter.
-2. **Issue #1** — reduce SymSpell delete-map RSS/`prepare` (measure Insert/20k + RSS probe).
+1. **#1 next slice** — intern/arena delete keys or denser hash map (measure RSS again).
+2. **E1** — mixed-load macro probe if production writes under search load matter.
 3. **#2–#5** — optional ranker test hardening (or **G1** `fields=id` polish).
 
 Do not start ART/layout (**F**) without a new profile saying trie/layout is the
@@ -316,10 +319,10 @@ file: Insert/20k ~2703 ms; SearchFuzzy/20k/2 ~7.3 µs; SearchExact/20k ~0.91 µs
 
 | Backend | How to select | Prefer when | Cost profile (@ ~20k synthetic) |
 |---------|---------------|-------------|----------------------------------|
-| **SymSpell** | **Default**; `--fuzzy-backend symspell` | Bulk load → serve; query latency dominates | Search ~µs; `prepare`/ingest slow; RSS ~**400+ MB** (probe) |
+| **SymSpell** | **Default**; `--fuzzy-backend symspell` | Bulk load → serve; query latency dominates | Search ~µs; `prepare`/ingest slow; RSS ~**327 MB** @20k after #1 uint32 postings (was ~418 MB) |
 | **BK-tree** | `--fuzzy-backend bk`, `HOUND_FUZZY_BACKEND=bk`, `-DHOUND_DEFAULT_FUZZY_BACKEND_BK` | RAM-constrained; frequent writes; test oracle | Search ~ms; ingest/RSS cheaper (~**30 MB** probe) |
 
-Open follow-up: compress/intern SymSpell delete map (RSS + prepare) —
+Open follow-up: further SymSpell map compaction (intern delete keys, denser map) —
 https://github.com/carvalhosauro/hound/issues/1
 
 ---
@@ -465,6 +468,40 @@ Typesense-style lexicographic order (default Typesense
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Issue #1 slice: uint32 delete postings
+
+```text
+Hypothesis: Storing dictionary word ids (uint32_t) in SymSpell delete posting
+            lists instead of duplicated std::string cuts RSS and prepare cost
+            without hurting fuzzy lookup.
+Primary metric(s):   RSS delta @20k after prepare; BM_Insert/20000; prepare_ms
+Secondary metric(s): BM_SearchFuzzy/20000/{1,2}; BK↔SymSpell golden parity
+Before: probe rss_delta_mb≈418; prepare_ms≈1178; micro_iss1_before.json
+After:  probe rss_delta_mb≈327; prepare_ms≈1042; micro_iss1_after.json
+Correctness: ./scripts/run_correctness.sh — pass
+Micro gate:  compare_bench vs baseline — pass (Insert/fuzzy improved or ok)
+DoD items:   [x] measured  [x] uint32 postings  [x] parity  [x] suite green
+Decision:    ship slice — leave #1 open for intern keys / denser map / incremental
+```
+
+- Commands:
+  - `scripts/tmp/probe_symspell_rss_*` (untracked local probe)
+  - `hound_bench_micro --benchmark_filter='BM_Insert/20000|BM_SearchFuzzy/20000/…'`
+  - `./scripts/compare_bench.py baselines/micro_baseline.json …/micro_iss1_after.json`
+- Metrics:
+
+  | metric | before | after | Δ |
+  |--------|--------|-------|---|
+  | RSS @20k (delta MB) | ~418 | ~327 | **−22%** |
+  | prepare_ms (probe) | ~1178 | ~1042 | −12% |
+  | `BM_Insert/20000` (same-host) | 1536 ms | 1456 ms | −5% |
+  | `BM_SearchFuzzy/20000/2` | 6.40 µs | 5.56 µs | −13% |
+
+- Correctness: pass (incl. golden BK↔SymSpell + TSan)
+- Micro gate: pass (no `save_baseline.sh` — Insert already faster than versioned baseline)
+- Decision: **ship** slice; **#1 remains open**
+- Notes: Delete **keys** are still `std::string` map keys — next leverage for RSS.
 
 ### 2026-07-23 — Phase D closed (commits + follow-up issues)
 

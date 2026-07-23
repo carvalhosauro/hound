@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <cstddef>
 #include <cstdlib>
 #include <memory>
@@ -21,6 +22,9 @@ namespace hound {
 // SymSpell-style symmetric-delete index (edits ≤ max_dictionary_edit_distance).
 // Dictionary updates are cheap; the delete map is rebuilt lazily on search/prepare
 // (B4) so bulk ingest stays viable while lookup stays fast.
+//
+// Issue #1 slice: delete posting lists store dictionary word ids (uint32_t)
+// instead of duplicated std::string copies of each word.
 class SymSpellFuzzyBackend final : public FuzzyBackend {
  public:
   explicit SymSpellFuzzyBackend(int max_dictionary_edit_distance = 2)
@@ -57,10 +61,16 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
     const int verify_distance = max_distance;
     const int gen_edits = std::min(max_distance, max_dict_edits_);
 
-    std::unordered_set<std::string> candidates;
+    std::unordered_set<std::uint32_t> candidates;
+    auto consider_word_id = [&](std::uint32_t wid) {
+      if (wid < words_by_id_.size()) {
+        candidates.insert(wid);
+      }
+    };
     auto consider_word = [&](const std::string& word) {
-      if (dictionary_.find(word) != dictionary_.end()) {
-        candidates.insert(word);
+      auto wit = word_to_id_.find(word);
+      if (wit != word_to_id_.end()) {
+        candidates.insert(wit->second);
       }
     };
 
@@ -74,19 +84,20 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
       if (dit == deletes_.end()) {
         continue;
       }
-      for (const auto& word : dit->second) {
-        candidates.insert(word);
+      for (const std::uint32_t wid : dit->second) {
+        consider_word_id(wid);
       }
     }
 
     auto qit = deletes_.find(std::string(query));
     if (qit != deletes_.end()) {
-      for (const auto& word : qit->second) {
-        candidates.insert(word);
+      for (const std::uint32_t wid : qit->second) {
+        consider_word_id(wid);
       }
     }
 
-    for (const auto& word : candidates) {
+    for (const std::uint32_t wid : candidates) {
+      const std::string& word = words_by_id_[wid];
       const int dist = levenshtein(word, query);
       if (dist > verify_distance) {
         continue;
@@ -104,6 +115,8 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
     std::lock_guard lock(rebuild_mu_);
     dictionary_.clear();
     deletes_.clear();
+    words_by_id_.clear();
+    word_to_id_.clear();
     deletes_ready_ = true;
   }
 
@@ -117,6 +130,8 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
     std::lock_guard lock(rebuild_mu_);
     deletes_ready_ = false;
     deletes_.clear();
+    words_by_id_.clear();
+    word_to_id_.clear();
   }
 
   void ensure_deletes_built() const {
@@ -125,22 +140,29 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
       return;
     }
     deletes_.clear();
+    words_by_id_.clear();
+    word_to_id_.clear();
+    words_by_id_.reserve(dictionary_.size());
+    word_to_id_.reserve(dictionary_.size());
     // Rough reserve: each word contributes O(len^2) deletes at distance 2.
     deletes_.reserve(dictionary_.size() * 8);
     for (const auto& [word, ids] : dictionary_) {
       if (ids.empty()) {
         continue;
       }
-      index_deletes_for(word);
+      const auto wid = static_cast<std::uint32_t>(words_by_id_.size());
+      words_by_id_.push_back(word);
+      word_to_id_.emplace(word, wid);
+      index_deletes_for(word, wid);
     }
     deletes_ready_ = true;
   }
 
-  void index_deletes_for(const std::string& word) const {
+  void index_deletes_for(const std::string& word, std::uint32_t word_id) const {
     std::vector<std::string> dels;
     generate_deletes(word, max_dict_edits_, dels);
     for (auto& del : dels) {
-      deletes_[std::move(del)].push_back(word);
+      deletes_[std::move(del)].push_back(word_id);
     }
   }
 
@@ -179,7 +201,10 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
 
   int max_dict_edits_;
   std::unordered_map<std::string, std::vector<std::string>> dictionary_;
-  mutable std::unordered_map<std::string, std::vector<std::string>> deletes_;
+  // Delete key → dictionary word ids (into words_by_id_ after prepare).
+  mutable std::unordered_map<std::string, std::vector<std::uint32_t>> deletes_;
+  mutable std::vector<std::string> words_by_id_;
+  mutable std::unordered_map<std::string, std::uint32_t> word_to_id_;
   mutable bool deletes_ready_ = true;
   mutable std::mutex rebuild_mu_;
 };
