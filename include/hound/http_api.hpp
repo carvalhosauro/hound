@@ -122,6 +122,14 @@ class HttpApi {
         if (req.has_param("max_edit_distance")) {
           opt.max_edit_distance = std::stoi(req.get_param_value("max_edit_distance"));
         }
+        // Optional ranker override; omit for process default (ScoreMerger / --ranker).
+        if (req.has_param("ranker")) {
+          RankerKind kind = RankerKind::Linear;
+          if (!parse_ranker_kind(req.get_param_value("ranker"), kind)) {
+            throw std::runtime_error("invalid ranker (use linear or tie_break)");
+          }
+          opt.ranker = kind;
+        }
         const std::string q = req.get_param_value("q");
         // FuzzyIndex is internally synchronized; do not hold API write lock on reads.
         auto hits = index_.search(q, opt);
