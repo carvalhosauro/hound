@@ -92,11 +92,30 @@ duplicate upsert, score-merger alpha / ties / empty.
 
 ---
 
-## 5–8. Micro / macro / profiling / compare
+## 5. Microbenchmark (Google Benchmark) — Phase B
 
-Phases B–D (not implemented yet). See prior plan sections: Google Benchmark
-JSON, hey HTTP load, `perf` wrappers, `compare_bench.py` with **+10%**
-micro regression threshold.
+Target: `hound_bench_micro` (`benchmarks/micro/bench_ops.cpp`).
+
+| Bench | Params |
+|-------|--------|
+| `BM_Insert` | N ∈ {1k, 5k, 20k} |
+| `BM_SearchExact` | N ∈ {1k, 5k, 20k} |
+| `BM_SearchFuzzy` | N × distance ∈ {1,2,3} |
+| `BM_ScoreMerge` | candidate set {64, 256, 1024} |
+
+```bash
+./scripts/run_micro.sh                          # → benchmarks/results/micro_<ts>.json
+./scripts/save_baseline.sh benchmarks/results/micro_<ts>.json
+```
+
+- Release build in `build-bench/` (no sanitizers).
+- Synthetic generator seed **42** (typo seed 99).
+- Versioned baseline: `baselines/micro_baseline.json`.
+
+## 6–8. Macro / profiling / compare
+
+Phases C–D (not implemented yet): hey HTTP load, `perf` wrappers,
+`compare_bench.py` with **+10%** micro regression threshold.
 
 ---
 
@@ -105,7 +124,7 @@ micro regression threshold.
 | Job | When |
 |-----|------|
 | `./scripts/run_correctness.sh` | Before every merge |
-| Micro + compare | Phase B+ |
+| `./scripts/run_micro.sh` (+ optional save_baseline) | Before perf-sensitive merges |
 | Macro hey | Manual / Phase C |
 
 ---
@@ -116,7 +135,8 @@ micro regression threshold.
 |-----|-------|
 | Catch2 | FetchContent (existing) |
 | libtsan | OS package for TSan job |
-| Google Benchmark / hey | Phases B/C |
+| Google Benchmark | FetchContent when `HOUND_BUILD_BENCH` (Phase B) |
+| hey | Phase C |
 
 ---
 
@@ -125,7 +145,7 @@ micro regression threshold.
 | Phase | Status |
 |-------|--------|
 | **A** Correctness + golden + TSan | **Done** (2026-07-23) |
-| **B** Micro (Google Benchmark) | Pending |
+| **B** Micro (Google Benchmark) | **Done** (2026-07-23) |
 | **C** Macro (hey) | Pending |
 | **D** Profiling + compare script | Pending |
 
@@ -145,3 +165,14 @@ micro regression threshold.
   Docs are English (`REFINEMENT.md`, `TESTING-AND-BENCHMARKS.md`, `PLANO.md`).
   TSan job requires the OS `libtsan` package; the script skips with a warning
   if the runtime is missing (`sudo dnf install libtsan` on Fedora).
+
+### Phase B — 2026-07-23
+
+- **Done:** Google Benchmark micro suite (`hound_bench_micro`): insert, exact
+  search, fuzzy distances 1–3, score merge; parametrized by index size;
+  `scripts/run_micro.sh` + `scripts/save_baseline.sh`; versioned
+  `baselines/micro_baseline.json` (seed 42).
+- **How to run:** `./scripts/run_micro.sh` then optionally
+  `./scripts/save_baseline.sh benchmarks/results/micro_….json`
+- **Limits:** no automated compare/regression gate yet (Phase D); legacy
+  `hound_bench` MVP binary still present alongside micro.

@@ -1,11 +1,12 @@
 /build/
 /build-tsan/
+/build-bench/
 /cmake-build-*/
 /.cache/
 /.omc/
 /.claude/
 /.code-review-graph/
-/benchmarks/results/
+/benchmarks/results/*.json
 compile_commands.json
 *.o
 *.a

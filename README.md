@@ -36,8 +36,9 @@ Binaries:
 |--------|---------|
 | `build/hound` | HTTP server |
 | `build/hound_bulk_load` | CLI bulk ingest → optional snapshot |
-| `build/hound_tests` | unit + integration tests |
-| `build/hound_bench` | synthetic benchmarks |
+| `build/hound_tests` | unit + golden + integration tests |
+| `build/hound_bench` | legacy synthetic summary bench |
+| `build-bench/hound_bench_micro` | Google Benchmark micro suite (JSON) |
 
 ## Run
 
@@ -84,11 +85,16 @@ id,text,external_score
 ## Benchmarks
 
 ```bash
+# Legacy one-shot summary (p50/p95/p99 + recall@10)
 ./build/hound_bench
+
+# Micro suite (Google Benchmark → JSON)
+./scripts/run_micro.sh
+./scripts/save_baseline.sh benchmarks/results/micro_<timestamp>.json
 ```
 
-Reports ingest time, search latency p50/p95/p99, Recall@10 under distance-1
-typos, and RSS for index sizes 1k / 5k / 20k (synthetic names only).
+Micro reports insert, exact search, fuzzy (edit distance 1–3), and score-merge
+latency across index sizes 1k / 5k / 20k (synthetic names, seed 42).
 
 ## Project layout
 

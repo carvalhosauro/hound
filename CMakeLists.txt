@@ -111,6 +111,16 @@ if(HOUND_BUILD_TESTS)
 endif()
 
 if(HOUND_BUILD_BENCH)
+  set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    benchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG v1.9.1
+  )
+  FetchContent_MakeAvailable(benchmark)
+
   add_executable(hound_bench
     benchmarks/bench_main.cpp
     benchmarks/synth_generator/synth.cpp
@@ -119,6 +129,14 @@ if(HOUND_BUILD_BENCH)
     ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
   )
   target_link_libraries(hound_bench PRIVATE hound_core)
+
+  add_executable(hound_bench_micro
+    benchmarks/micro/bench_ops.cpp
+  )
+  target_include_directories(hound_bench_micro PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+  )
+  target_link_libraries(hound_bench_micro PRIVATE hound_core benchmark::benchmark)
 endif()
 
 install(TARGETS hound RUNTIME DESTINATION bin)
