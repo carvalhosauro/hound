@@ -262,9 +262,21 @@ in `bk_fuzzy_backend.hpp` + raw `BkTree` for unit oracles. Escape hatch unchange
 
 **B4 metrics (same host):** `BM_SearchFuzzy/20000/2` SymSpell ~8 µs vs BK ~1.2 ms
 (~−99%) and vs versioned baseline ~802 µs (~−99%). Golden recall unchanged.
-`BM_Insert/20000` still ~10× BK / ~30× baseline after lazy+faster deletes —
-**intentional**, justified by query-path win; do **not** `save_baseline.sh`
-until a human accepts the new ingest cost.
+`BM_Insert/20000` still ~10× BK after lazy+faster deletes — **intentional**.
+
+**Baseline (human-accepted 2026-07-23):** `baselines/micro_baseline.json` refreshed
+from SymSpell-default micro (`micro_20260723T200401Z.json`). Gate metrics in that
+file: Insert/20k ~2703 ms; SearchFuzzy/20k/2 ~7.3 µs; SearchExact/20k ~0.91 µs.
+
+### Fuzzy backends — use cases
+
+| Backend | How to select | Prefer when | Cost profile (@ ~20k synthetic) |
+|---------|---------------|-------------|----------------------------------|
+| **SymSpell** | **Default**; `--fuzzy-backend symspell` | Bulk load → serve; query latency dominates | Search ~µs; `prepare`/ingest slow; RSS ~**400+ MB** (probe) |
+| **BK-tree** | `--fuzzy-backend bk`, `HOUND_FUZZY_BACKEND=bk`, `-DHOUND_DEFAULT_FUZZY_BACKEND_BK` | RAM-constrained; frequent writes; test oracle | Search ~ms; ingest/RSS cheaper (~**30 MB** probe) |
+
+Open follow-up: compress/intern SymSpell delete map (RSS + prepare) —
+https://github.com/carvalhosauro/hound/issues/1
 
 ---
 
@@ -363,6 +375,23 @@ linear merge as default.
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Accept SymSpell micro baseline
+
+```text
+Hypothesis: Human accepts SymSpell-default ingest/search tradeoff as the new
+            versioned gate after documenting backend use cases.
+Primary metric(s):   baselines/micro_baseline.json (SymSpell default micro)
+Commands: ./scripts/run_micro.sh → save_baseline.sh micro_20260723T200401Z.json
+Correctness: N/A (baseline promotion)
+Micro gate:  new reference point for compare_bench.py
+Decision:    ship — baseline updated; BK remains escape hatch
+```
+
+- Gate snapshot (cpu_time): Insert/20k ~2703 ms; SearchFuzzy/20k/1 ~1.93 µs;
+  SearchFuzzy/20k/2 ~7.32 µs; SearchExact/20k ~0.91 µs
+- Docs: README + AGENTS + REFINEMENT backend use-case tables
+- Decision: **ship**
 
 ### 2026-07-23 — Phase C2 wire adaptive edit distance into search
 

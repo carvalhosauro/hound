@@ -12,7 +12,9 @@ Example datasets are synthetic.
 
 ## Features (MVP)
 
-- In-memory **Trie** (prefix) + **BK-tree** (Levenshtein fuzzy)
+- In-memory **Trie** (prefix) + pluggable fuzzy dictionary (**SymSpell** default;
+  **BK-tree** oracle/escape hatch)
+- Adaptive max edit distance by query length (optional fixed override)
 - Configurable merge: `final = alpha * text_relevance + (1-alpha) * norm(external_score)`
 - HTTP JSON API
 - Bulk load from generic CSV/JSON
@@ -43,12 +45,27 @@ Binaries:
 ## Run
 
 ```bash
-# empty index
+# empty index (SymSpell fuzzy backend by default)
 ./build/hound --host 127.0.0.1 --port 8080
 
 # bulk load + optional snapshot
 ./build/hound --load examples/sample.csv --snapshot /tmp/hound.snap --port 8080
+
+# force BK-tree fuzzy backend (lower RAM / faster ingest; slower fuzzy search)
+./build/hound --fuzzy-backend bk --load examples/sample.csv --port 8080
+# equivalent: HOUND_FUZZY_BACKEND=bk ./build/hound ...
 ```
+
+### Fuzzy backends — which to use
+
+| Backend | Select | Best when | Tradeoff (≈20k synthetic docs) |
+|---------|--------|-----------|--------------------------------|
+| **SymSpell** (default) | omit flag, or `--fuzzy-backend symspell` | Bulk load once (or rare writes), then many autocomplete queries | Fuzzy search ~**µs**; ingest + delete-map build slower; RSS much higher (~**400+ MB** vs ~**30 MB** for BK in a local probe) |
+| **BK-tree** | `--fuzzy-backend bk` or `HOUND_FUZZY_BACKEND=bk` | Tight RAM, frequent upserts/rebuilds, or BK as test oracle | Ingest/RSS cheaper; fuzzy search ~**ms** at 20k (Levenshtein-heavy) |
+
+Compile-time default override: `-DHOUND_DEFAULT_FUZZY_BACKEND_BK`.
+
+Detail and roadmap: [docs/REFINEMENT.md](docs/REFINEMENT.md).
 
 ### HTTP API
 
@@ -60,6 +77,8 @@ curl -s -X POST localhost:8080/index \
   -d '{"id":"1","text":"Ada Ash","external_score":10}'
 
 curl -s 'localhost:8080/search?q=ada%20ash&limit=5&alpha=0.7'
+# optional fixed edit distance (omit for adaptive length→distance):
+# curl -s 'localhost:8080/search?q=ada&max_edit_distance=1'
 
 curl -s -X DELETE localhost:8080/index/1
 ```
