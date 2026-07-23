@@ -1,0 +1,16 @@
+query,expected_id,k,note
+alpha ridge,g1,10,exact
+alpga ridge,g1,10,typo distance 1 in first token
+alpine lake,g2,10,exact
+alpin lake,g2,10,typo distance 1
+beta hill,g3,10,exact
+blake brook,g4,10,exact
+blak brook,g4,10,typo
+casey cedar,g5,10,exact
+drew dale,g6,10,exact
+eden elm,g7,10,exact
+finn field,g8,10,exact
+fin field,g8,10,typo short first token
+gray grove,g9,10,exact
+harper hill,g10,10,exact
+alpha,g1,10,prefix of alpha ridge
