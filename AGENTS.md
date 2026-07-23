@@ -89,9 +89,15 @@ Detail: [`benchmarks/macro/README.md`](benchmarks/macro/README.md),
 ## Performance work
 
 Before large fuzzy refactors, follow [`docs/REFINEMENT.md`](docs/REFINEMENT.md):
-measure (`perf` / micro) first. Top suspect historically: BK-tree + Levenshtein
-(SymSpell / symmetric-delete is the planned #1 win). Do not migrate to ART
+measure (`perf` / micro) first. Phase A (`perf` @ `BM_SearchFuzzy/20000/2`)
+**confirmed** BK-tree + Levenshtein dominate (~83% combined leaf); SymSpell /
+symmetric-delete remains the planned #1 win. Do not migrate to ART
 “because Typesense” at ~thousands of docs without a profile saying so.
+
+**Fuzzy PR gate metrics** (mandatory `compare_bench.py` names — see
+`docs/REFINEMENT.md` §A2): `BM_SearchFuzzy/20000/1`,
+`BM_SearchFuzzy/20000/2`, plus guards `BM_SearchExact/20000` and
+`BM_Insert/20000`.
 
 Any intentional micro regression >10% must be justified in the PR/commit
 message or revert.
