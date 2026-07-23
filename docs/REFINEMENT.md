@@ -273,10 +273,25 @@ until a human accepts the new ingest cost.
 **Goal:** Typo tolerance scales with term length (Sonic-style), without
 surprising short-token explosions.
 
-| ID | Delivery | Measure | Done when |
-|----|----------|---------|-----------|
-| **C1** | Spec: length → max distance table + tests | golden cases (short/medium/long) | Table documented; unit tests lock behavior |
-| **C2** | Implement + optional API override | micro fuzzy + quality fixture | Default behavior documented; override preserves old fixed-d tests; no >10% micro regression unexplained |
+| ID | Delivery | Measure | Done when | Status |
+|----|----------|---------|-----------|--------|
+| **C1** | Spec: length → max distance table + tests | golden cases (short/medium/long) | Table documented; unit tests lock behavior | **Done** (2026-07-23) |
+| **C2** | Implement + optional API override | micro fuzzy + quality fixture | Default behavior documented; override preserves old fixed-d tests; no >10% micro regression unexplained | pending |
+
+#### C1 — Length → max distance table
+
+Documented in `include/hound/adaptive_edit_distance.hpp` and locked by
+`tests/unit/test_adaptive_edit_distance.cpp`:
+
+| normalized query length | `max_edit_distance` |
+|-------------------------|---------------------|
+| 0 … 2 | 0 |
+| 3 … 5 | 1 |
+| 6+ | 2 |
+
+`resolve_max_edit_distance(len, override)` returns `override` when set (C2 will
+wire `SearchOptions`); otherwise the table above. Cap 2 aligns with SymSpell
+delete depth (Phase B).
 
 ---
 
@@ -344,6 +359,24 @@ linear merge as default.
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Phase C1 adaptive edit-distance table
+
+```text
+Hypothesis: Document + lock a length→max_edit_distance table before wiring
+            into FuzzyIndex (C2), so short queries cannot explode candidates.
+Primary metric(s):   unit tests for adaptive_max_edit_distance / resolve_*
+Secondary metric(s): N/A (spec only)
+Correctness: unit + full suite green
+Micro gate:  N/A (not wired into search yet)
+DoD items:   [x] table documented  [x] unit tests  [x] changelog
+Decision:    ship — proceed to C2 wiring
+```
+
+- Table: len≤2 → 0; 3–5 → 1; 6+ → 2 (`adaptive_edit_distance.hpp`)
+- Correctness: pass
+- Micro gate: N/A
+- Decision: **ship**
 
 ### 2026-07-23 — Phase B5 demote BK to oracle/escape hatch
 
