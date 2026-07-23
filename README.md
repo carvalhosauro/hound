@@ -92,8 +92,18 @@ typos, and RSS for index sizes 1k / 5k / 20k (synthetic names only).
 
 ## Project layout
 
-See [docs/PLANO.md](docs/PLANO.md) for the phased design. Core headers live under
-`include/hound/` and have no HTTP/CSV dependencies except the API/ingest layers.
+See [docs/PLANO.md](docs/PLANO.md) for the phased design,
+[docs/REFINEMENT.md](docs/REFINEMENT.md) for post-MVP priorities, and
+[docs/TESTING-AND-BENCHMARKS.md](docs/TESTING-AND-BENCHMARKS.md) for the
+correctness/performance suite.
+
+```bash
+./scripts/run_correctness.sh          # unit + golden + integration + TSan
+HOUND_RUN_TSAN=0 ./scripts/run_correctness.sh   # skip TSan
+```
+
+Core headers live under `include/hound/` and have no HTTP/CSV dependencies
+except the API/ingest layers.
 
 ## License
 
