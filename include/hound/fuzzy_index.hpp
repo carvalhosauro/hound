@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -12,8 +13,8 @@
 #include <utility>
 #include <vector>
 
-#include "hound/bk_tree.hpp"
 #include "hound/document.hpp"
+#include "hound/fuzzy_backend.hpp"
 #include "hound/normalizer.hpp"
 #include "hound/score_merger.hpp"
 #include "hound/trie.hpp"
@@ -28,8 +29,16 @@ struct SearchOptions {
 };
 
 // Thread-safe in-memory index: shared locks for search, unique for mutations.
+// Fuzzy dictionary is pluggable via FuzzyBackend (default: BkFuzzyBackend).
 class FuzzyIndex {
  public:
+  explicit FuzzyIndex(std::unique_ptr<FuzzyBackend> fuzzy = make_default_fuzzy_backend())
+      : fuzzy_(std::move(fuzzy)) {
+    if (!fuzzy_) {
+      fuzzy_ = make_default_fuzzy_backend();
+    }
+  }
+
   void upsert(Document doc) {
     const std::string normalized = normalize(doc.text);
     std::unique_lock lock(mu_);
@@ -37,12 +46,12 @@ class FuzzyIndex {
     if (it != docs_.end()) {
       const std::string old_norm = normalize(it->second.text);
       trie_.erase(old_norm, doc.id);
-      bk_.erase(old_norm, doc.id);
+      fuzzy_->erase(old_norm, doc.id);
     }
     docs_[doc.id] = doc;
     if (!normalized.empty()) {
       trie_.insert(normalized, doc.id);
-      bk_.insert(normalized, doc.id);
+      fuzzy_->insert(normalized, doc.id);
     }
   }
 
@@ -54,7 +63,7 @@ class FuzzyIndex {
     }
     const std::string norm = normalize(it->second.text);
     trie_.erase(norm, id);
-    bk_.erase(norm, id);
+    fuzzy_->erase(norm, id);
     docs_.erase(it);
     return true;
   }
@@ -77,7 +86,7 @@ class FuzzyIndex {
     std::unique_lock lock(mu_);
     docs_.clear();
     trie_.clear();
-    bk_.clear();
+    fuzzy_->clear();
   }
 
   // Copy under shared lock for snapshot serialization.
@@ -129,7 +138,7 @@ class FuzzyIndex {
           }
         }
 
-        auto fuzzy = bk_.search(q, opt.max_edit_distance);
+        auto fuzzy = fuzzy_->search(q, opt.max_edit_distance);
         for (const auto& m : fuzzy) {
           for (const auto& id : m.ids) {
             consider(id, m.distance, false);
@@ -156,7 +165,7 @@ class FuzzyIndex {
   mutable std::shared_mutex mu_;
   std::unordered_map<std::string, Document> docs_;
   Trie trie_;
-  BkTree bk_;
+  std::unique_ptr<FuzzyBackend> fuzzy_;
 };
 
 }  // namespace hound

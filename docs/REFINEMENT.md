@@ -103,8 +103,8 @@ Notes:
 | Piece | Implementation | File |
 |-------|----------------|------|
 | Prefix | Trie with per-node `unique_ptr` + `unordered_map<char,…>` | `include/hound/trie.hpp` |
-| Fuzzy | BK-tree + full `levenshtein()` per edge/query | `include/hound/bk_tree.hpp` |
-| Orchestration | Sync upsert into Trie + BK + doc map | `include/hound/fuzzy_index.hpp` |
+| Fuzzy | BK-tree via `FuzzyBackend` (default `BkFuzzyBackend`) + full `levenshtein()` | `fuzzy_backend.hpp`, `bk_tree.hpp` |
+| Orchestration | Sync upsert into Trie + FuzzyBackend + doc map | `include/hound/fuzzy_index.hpp` |
 | Ranking | Linear `α·text + (1-α)·norm(external)` | `include/hound/score_merger.hpp` |
 | Concurrency | `shared_mutex` on `FuzzyIndex`; HTTP still has an API-level mutex for snapshot writes | `fuzzy_index.hpp`, `http_api.hpp` |
 | Persistence | Full binary snapshot rebuild on load | `include/hound/snapshot.hpp` |
@@ -141,7 +141,7 @@ Notes:
 
 | Learning | Status | Evidence |
 |----------|--------|----------|
-| Symmetric delete | **Not applied — #1 perf priority** | Fuzzy = BK-tree + repeated Levenshtein |
+| Symmetric delete | **Not applied — #1 perf priority** (B1 seam landed; B2+ pending) | Default fuzzy = BK via `FuzzyBackend`; repeated Levenshtein |
 | Compound / word split | **Not applied** | Normalizer collapses spaces only |
 | Practical distance ~2–3 | **Aligned** | Default max distance 2 |
 
@@ -248,13 +248,18 @@ Baseline reference (versioned `baselines/micro_baseline.json`, cpu_time):
 **Goal:** Cut fuzzy latency/scalability without tanking recall on the golden
 path. Ship behind a clear seam so each slice is reviewable.
 
-| ID | Delivery | Measure | Done when |
-|----|----------|---------|-----------|
-| **B1** | Design + interface only (`FuzzyBackend` or equivalent); BK remains default | correctness only (no perf claim) | Compiles; tests prove BK path unchanged; no public API break |
-| **B2** | Symmetric-delete index build (edits ≤2) + lookup; behind flag/compile switch | build RSS/time; lookup correctness vs BK on golden set | Unit/golden: same hits as BK on agreed fixture **or** documented intentional diffs |
-| **B3** | Wire into `FuzzyIndex` search path (feature flag default off) | before/after `BM_SearchFuzzy/*`; temporary probe OK if untracked | Flag off = baseline parity; flag on shows target latency drop on 20k/d=2 |
-| **B4** | Enable default **only if** metrics win | micro + recall@10 (or golden) | p50/p99 fuzzy improve vs Phase 0/micro baseline; recall@10 on happy path ≥ baseline; `save_baseline.sh` only after human accept |
-| **B5** | Remove or demote BK from hot path (keep as test oracle if useful) | micro + correctness | Dead code path gone or clearly non-default; suite still green |
+| ID | Delivery | Measure | Done when | Status |
+|----|----------|---------|-----------|--------|
+| **B1** | Design + interface only (`FuzzyBackend`); BK remains default | correctness only (no perf claim) | Compiles; tests prove BK path unchanged; no public API break | **Done** (2026-07-23) |
+| **B2** | Symmetric-delete index build (edits ≤2) + lookup; behind flag/compile switch | build RSS/time; lookup correctness vs BK on golden set | Unit/golden: same hits as BK on agreed fixture **or** documented intentional diffs | pending |
+| **B3** | Wire into `FuzzyIndex` search path (feature flag default off) | before/after `BM_SearchFuzzy/*`; temporary probe OK if untracked | Flag off = baseline parity; flag on shows target latency drop on 20k/d=2 | pending |
+| **B4** | Enable default **only if** metrics win | micro + recall@10 (or golden) | p50/p99 fuzzy improve vs Phase 0/micro baseline; recall@10 on happy path ≥ baseline; `save_baseline.sh` only after human accept | pending |
+| **B5** | Remove or demote BK from hot path (keep as test oracle if useful) | micro + correctness | Dead code path gone or clearly non-default; suite still green | pending |
+
+**B1 seam:** `include/hound/fuzzy_backend.hpp` (`FuzzyBackend` + `BkFuzzyBackend` +
+`make_default_fuzzy_backend()`). `FuzzyIndex` takes
+`unique_ptr<FuzzyBackend>` (default BK). Public search/upsert/HTTP unchanged.
+Tests: `tests/unit/test_fuzzy_backend.cpp` (parity vs `BkTree` + injectability).
 
 **Target (hypothesis to validate, not a promise):** large drop on
 `BM_SearchFuzzy/20000/2` vs current baseline. A1 confirmed Lev/BK dominate
@@ -338,6 +343,43 @@ linear merge as default.
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Phase B1 FuzzyBackend seam (BK default)
+
+```text
+Hypothesis: Introduce FuzzyBackend so SymSpell can plug in later without
+            changing FuzzyIndex call sites; default BkFuzzyBackend keeps
+            today’s BK behavior (correctness only — no perf claim).
+Primary metric(s):   correctness (unit/golden/integration/TSan)
+Secondary metric(s): same-machine micro before/after B1 (gate names)
+Before: pre-B1 micro on this host (micro_20260723T174922Z.json)
+After:  post-B1 micro (micro_20260723T174948Z.json)
+Correctness: ./scripts/run_correctness.sh — pass
+Micro gate:  same-machine compare_bench — pass (virtual dispatch noise ≪ 10%)
+DoD items:   [x] interface + Bk adapter  [x] BK path tests  [x] no public API break
+Decision:    ship — proceed to B2 (symmetric-delete behind flag)
+```
+
+- Commands:
+  - `./scripts/run_correctness.sh`
+  - same-machine: `compare_bench.py micro_…174922Z.json micro_…174948Z.json`
+- Metrics (same machine, cpu_time Δ):
+
+  | metric | before | after | Δ |
+  |--------|--------|-------|---|
+  | `BM_SearchFuzzy/20000/1` | 134.7 µs | 127.3 µs | −5.5% |
+  | `BM_SearchFuzzy/20000/2` | 1017 µs | 1004 µs | −1.4% |
+  | `BM_SearchExact/20000` | 3.97 µs | 3.98 µs | +0.3% |
+  | `BM_Insert/20000` | 133.7 ms | 141.9 ms | +6.1% |
+
+- Note: vs **versioned** `baselines/micro_baseline.json` this host is currently
+  ~15–30% slower even **before** B1 (ScoreMerge also moves) — treat as machine
+  load variance, not B1. Do not `save_baseline.sh` from this run.
+- Correctness: pass
+- Micro gate: pass (same-machine)
+- Decision: **ship**
+- Notes: `FuzzyIndex(std::unique_ptr<FuzzyBackend>)` is additive; default ctor
+  unchanged for callers.
 
 ### 2026-07-23 — Phase A Evidence before structure work
 
