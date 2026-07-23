@@ -138,5 +138,5 @@ and Phase-2 changelog.
 ## Tests and benchmarks
 
 See [TESTING-AND-BENCHMARKS.md](TESTING-AND-BENCHMARKS.md): suite architecture
-(correctness, micro, macro/hey, profiling, compare). Remote CI deferred;
-Phase A (correctness) is implemented.
+(correctness, micro, macro/hey, profiling, compare). Phases A–D implemented;
+remote CI still deferred.

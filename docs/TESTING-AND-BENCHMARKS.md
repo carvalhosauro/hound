@@ -123,9 +123,26 @@ HTTP load against a live sidecar. See [`benchmarks/macro/README.md`](../benchmar
 
 Includes loopback + HTTP + JSON — **not** comparable to micro µs.
 
-## 7–8. Profiling / compare
+## 7. Profiling — Phase D
 
-Phase D (pending): `perf` wrappers + `compare_bench.py` (+10% micro gate).
+See [`benchmarks/profiling/README.md`](../benchmarks/profiling/README.md).
+
+```bash
+./benchmarks/profiling/perf_stat.sh --benchmark_filter=BM_SearchFuzzy/20000/2
+FLAMEGRAPH_DIR=~/src/FlameGraph ./benchmarks/profiling/flamegraph.sh
+```
+
+## 8. Baseline compare — Phase D
+
+```bash
+./scripts/run_micro.sh
+./scripts/compare_bench.py baselines/micro_baseline.json benchmarks/results/micro_<ts>.json
+# Smoke (expects FAIL then OK):
+./scripts/test_compare_bench.sh
+```
+
+Default gate: **+10%** on `cpu_time` (normalized by `time_unit`). Exit `1` on
+regression. Rationale: local machine noise; avoid flaky fails on 2–3% jitter.
 
 ---
 
@@ -136,6 +153,8 @@ Phase D (pending): `perf` wrappers + `compare_bench.py` (+10% micro gate).
 | `./scripts/run_correctness.sh` | Before every merge |
 | `./scripts/run_micro.sh` (+ optional save_baseline) | Before perf-sensitive merges |
 | `./scripts/run_macro.sh` | Manual / before HTTP path changes |
+| `./scripts/compare_bench.py` | After micro runs / before perf merges |
+| `./benchmarks/profiling/*` | When hunting CPU/cache hotspots |
 
 ---
 
@@ -147,6 +166,8 @@ Phase D (pending): `perf` wrappers + `compare_bench.py` (+10% micro gate).
 | libtsan | OS package for TSan job |
 | Google Benchmark | FetchContent when `HOUND_BUILD_BENCH` (Phase B) |
 | hey | External binary (`go install github.com/rakyll/hey@latest`) |
+| perf / FlameGraph | Optional OS + clone for Phase D |
+| Python 3 | `compare_bench.py` (stdlib only) |
 
 ---
 
@@ -157,7 +178,7 @@ Phase D (pending): `perf` wrappers + `compare_bench.py` (+10% micro gate).
 | **A** Correctness + golden + TSan | **Done** (2026-07-23) |
 | **B** Micro (Google Benchmark) | **Done** (2026-07-23) |
 | **C** Macro (hey) | **Done** (2026-07-23) |
-| **D** Profiling + compare script | Pending |
+| **D** Profiling + compare script | **Done** (2026-07-23) |
 
 ---
 
@@ -200,3 +221,14 @@ Phase D (pending): `perf` wrappers + `compare_bench.py` (+10% micro gate).
   `HOUND_MACRO_DOCS`).
 - **Limits:** text report only (not JSON); not gated in CI; remote CI still deferred.
   Without keep-alive, p99 may show connection-churn outliers — prefer p50/p90.
+
+### Phase D — 2026-07-23
+
+- **Done:** `benchmarks/profiling/{perf_stat,flamegraph}.sh` + README (perf vs
+  Valgrind); `scripts/compare_bench.py` with default **+10%** `cpu_time` gate;
+  `scripts/test_compare_bench.sh` smoke (artificial +20% must FAIL).
+- **How to run:**
+  `./scripts/compare_bench.py baselines/micro_baseline.json benchmarks/results/micro_….json`
+  Profiling requires `perf` (+ optional FlameGraph clone).
+- **Limits:** remote CI still deferred; compare is local/manual; flamegraph
+  needs `FLAMEGRAPH_DIR`.

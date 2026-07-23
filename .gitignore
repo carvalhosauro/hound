@@ -8,6 +8,9 @@
 /.code-review-graph/
 /benchmarks/results/*.json
 /benchmarks/results/*.txt
+/benchmarks/results/*.data
+/benchmarks/results/*.folded
+/benchmarks/results/*.svg
 compile_commands.json
 *.o
 *.a

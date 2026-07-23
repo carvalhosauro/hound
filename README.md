@@ -104,6 +104,16 @@ Macro drives concurrent HTTP clients against a live sidecar and writes
 `benchmarks/results/macro_<timestamp>.txt`. See
 [benchmarks/macro/README.md](benchmarks/macro/README.md).
 
+### Compare & profile
+
+```bash
+./scripts/compare_bench.py baselines/micro_baseline.json benchmarks/results/micro_<ts>.json
+./benchmarks/profiling/perf_stat.sh --benchmark_filter=BM_SearchFuzzy/20000/2
+```
+
+See [docs/TESTING-AND-BENCHMARKS.md](docs/TESTING-AND-BENCHMARKS.md) and
+[benchmarks/profiling/README.md](benchmarks/profiling/README.md).
+
 ## Project layout
 
 See [docs/PLANO.md](docs/PLANO.md) for the phased design,
