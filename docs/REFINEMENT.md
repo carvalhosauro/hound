@@ -113,7 +113,7 @@ Paste full `./build/hound_bench` before/after; justify or revert any p50/p95/p99
 
 _(No SymSpell/ranking refinement entries yet.)_
 
-Note: testing-suite Phase A is tracked in [TESTING-AND-BENCHMARKS.md](TESTING-AND-BENCHMARKS.md).
+Note: how/when to run the test and bench suite is in [AGENTS.md](../AGENTS.md).
 
 ---
 

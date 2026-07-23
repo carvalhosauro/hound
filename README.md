@@ -111,15 +111,14 @@ Macro drives concurrent HTTP clients against a live sidecar and writes
 ./benchmarks/profiling/perf_stat.sh --benchmark_filter=BM_SearchFuzzy/20000/2
 ```
 
-See [docs/TESTING-AND-BENCHMARKS.md](docs/TESTING-AND-BENCHMARKS.md) and
+See [AGENTS.md](AGENTS.md) (when/how to run suites) and
 [benchmarks/profiling/README.md](benchmarks/profiling/README.md).
 
 ## Project layout
 
 See [docs/PLANO.md](docs/PLANO.md) for the phased design,
 [docs/REFINEMENT.md](docs/REFINEMENT.md) for post-MVP priorities, and
-[docs/TESTING-AND-BENCHMARKS.md](docs/TESTING-AND-BENCHMARKS.md) for the
-correctness/performance suite.
+[AGENTS.md](AGENTS.md) for agent/contributor workflow (tests & benches).
 
 ```bash
 ./scripts/run_correctness.sh          # unit + golden + integration + TSan

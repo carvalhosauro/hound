@@ -137,6 +137,7 @@ and Phase-2 changelog.
 
 ## Tests and benchmarks
 
-See [TESTING-AND-BENCHMARKS.md](TESTING-AND-BENCHMARKS.md): suite architecture
-(correctness, micro, macro/hey, profiling, compare). Phases A–D implemented;
-remote CI still deferred.
+Operational how/when: [AGENTS.md](../AGENTS.md). Detail for tools:
+[benchmarks/macro/README.md](../benchmarks/macro/README.md),
+[benchmarks/profiling/README.md](../benchmarks/profiling/README.md).
+Remote CI still deferred.
