@@ -18,7 +18,6 @@ struct FuzzyMatch {
 };
 
 // Pluggable fuzzy dictionary (Phase B). Default implementation is BkFuzzyBackend.
-// SymSpell / symmetric-delete will plug in behind the same seam (B2+).
 class FuzzyBackend {
  public:
   virtual ~FuzzyBackend() = default;
@@ -54,8 +53,16 @@ class BkFuzzyBackend final : public FuzzyBackend {
   BkTree tree_;
 };
 
-inline std::unique_ptr<FuzzyBackend> make_default_fuzzy_backend() {
-  return std::make_unique<BkFuzzyBackend>();
-}
+// Runtime / compile selection for FuzzyBackend (B2). Default remains BK.
+enum class FuzzyBackendKind { BkTree, SymSpell };
+
+// Override default with -DHOUND_DEFAULT_FUZZY_BACKEND_SYMSPELL (compile switch).
+#if defined(HOUND_DEFAULT_FUZZY_BACKEND_SYMSPELL)
+inline constexpr FuzzyBackendKind kCompileDefaultFuzzyBackend = FuzzyBackendKind::SymSpell;
+#else
+inline constexpr FuzzyBackendKind kCompileDefaultFuzzyBackend = FuzzyBackendKind::BkTree;
+#endif
+
+inline FuzzyBackendKind default_fuzzy_backend_kind() { return kCompileDefaultFuzzyBackend; }
 
 }  // namespace hound

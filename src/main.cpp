@@ -14,12 +14,15 @@ void usage(const char* argv0) {
   std::cerr
       << "Usage: " << argv0
       << " [--host HOST] [--port PORT] [--snapshot PATH] [--load FILE]\n"
+      << "       [--fuzzy-backend bk|symspell]\n"
       << "\n"
       << "Hound — fuzzy autocomplete sidecar (HTTP JSON).\n"
-      << "  --host       bind address (default 127.0.0.1)\n"
-      << "  --port       listen port (default 8080)\n"
-      << "  --snapshot   optional binary snapshot path (load on boot, save on writes)\n"
-      << "  --load       bulk load .csv or .json before serving\n";
+      << "  --host            bind address (default 127.0.0.1)\n"
+      << "  --port            listen port (default 8080)\n"
+      << "  --snapshot        optional binary snapshot path (load on boot, save on writes)\n"
+      << "  --load            bulk load .csv or .json before serving\n"
+      << "  --fuzzy-backend   fuzzy dictionary: bk (default) or symspell\n"
+      << "                    (overrides HOUND_FUZZY_BACKEND env if set)\n";
 }
 
 }  // namespace
@@ -29,6 +32,7 @@ int main(int argc, char** argv) {
   int port = 8080;
   std::string snapshot;
   std::string load_path;
+  hound::FuzzyBackendKind fuzzy_kind = hound::fuzzy_backend_kind_from_env();
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -47,6 +51,12 @@ int main(int argc, char** argv) {
       snapshot = need("--snapshot");
     } else if (arg == "--load") {
       load_path = need("--load");
+    } else if (arg == "--fuzzy-backend") {
+      const std::string value = need("--fuzzy-backend");
+      if (!hound::parse_fuzzy_backend_kind(value, fuzzy_kind)) {
+        std::cerr << "invalid --fuzzy-backend: " << value << " (use bk or symspell)\n";
+        return 2;
+      }
     } else if (arg == "--help" || arg == "-h") {
       usage(argv[0]);
       return 0;
@@ -57,7 +67,9 @@ int main(int argc, char** argv) {
     }
   }
 
-  hound::FuzzyIndex index;
+  hound::FuzzyIndex index(hound::make_fuzzy_backend(fuzzy_kind));
+  std::cerr << "fuzzy backend: "
+            << (fuzzy_kind == hound::FuzzyBackendKind::SymSpell ? "symspell" : "bk") << "\n";
   if (!snapshot.empty()) {
     std::ifstream probe(snapshot, std::ios::binary);
     if (probe.good()) {

@@ -98,6 +98,7 @@ if(HOUND_BUILD_TESTS)
       tests/unit/test_trie.cpp
       tests/unit/test_bk_tree.cpp
       tests/unit/test_fuzzy_backend.cpp
+      tests/unit/test_symspell_backend.cpp
       tests/unit/test_fuzzy_index.cpp
       tests/unit/test_score_merger.cpp
       tests/unit/test_bulk_loader.cpp

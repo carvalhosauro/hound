@@ -19,7 +19,9 @@ std::unique_ptr<hound::FuzzyIndex> build_index(std::size_t n) {
   cfg.count = n;
   cfg.seed = kSeed;
   auto docs = hound::synth::generate_documents(cfg);
-  auto index = std::make_unique<hound::FuzzyIndex>();
+  // Honors HOUND_FUZZY_BACKEND (bk default; symspell opt-in) for Phase B probes.
+  auto index = std::make_unique<hound::FuzzyIndex>(
+      hound::make_fuzzy_backend(hound::fuzzy_backend_kind_from_env()));
   for (const auto& d : docs) {
     index->upsert(d);
   }
@@ -43,7 +45,7 @@ void BM_Insert(benchmark::State& state) {
   const auto docs = docs_for(n);
   for (auto _ : state) {
     state.PauseTiming();
-    hound::FuzzyIndex index;
+    hound::FuzzyIndex index(hound::make_fuzzy_backend(hound::fuzzy_backend_kind_from_env()));
     state.ResumeTiming();
     for (const auto& d : docs) {
       index.upsert(d);

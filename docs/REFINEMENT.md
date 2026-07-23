@@ -103,7 +103,7 @@ Notes:
 | Piece | Implementation | File |
 |-------|----------------|------|
 | Prefix | Trie with per-node `unique_ptr` + `unordered_map<char,…>` | `include/hound/trie.hpp` |
-| Fuzzy | BK-tree via `FuzzyBackend` (default `BkFuzzyBackend`) + full `levenshtein()` | `fuzzy_backend.hpp`, `bk_tree.hpp` |
+| Fuzzy | `FuzzyBackend`: default BK-tree; optional SymSpell symmetric-delete | `fuzzy_backend.hpp`, `symspell_backend.hpp`, `bk_tree.hpp` |
 | Orchestration | Sync upsert into Trie + FuzzyBackend + doc map | `include/hound/fuzzy_index.hpp` |
 | Ranking | Linear `α·text + (1-α)·norm(external)` | `include/hound/score_merger.hpp` |
 | Concurrency | `shared_mutex` on `FuzzyIndex`; HTTP still has an API-level mutex for snapshot writes | `fuzzy_index.hpp`, `http_api.hpp` |
@@ -141,7 +141,7 @@ Notes:
 
 | Learning | Status | Evidence |
 |----------|--------|----------|
-| Symmetric delete | **Not applied — #1 perf priority** (B1 seam landed; B2+ pending) | Default fuzzy = BK via `FuzzyBackend`; repeated Levenshtein |
+| Symmetric delete | **Implemented behind flag (B2/B3)** — default still BK | `SymSpellFuzzyBackend`; CLI/env opt-in; ~98% faster fuzzy@20k/d=2; insert slower |
 | Compound / word split | **Not applied** | Normalizer collapses spaces only |
 | Practical distance ~2–3 | **Aligned** | Default max distance 2 |
 
@@ -251,19 +251,24 @@ path. Ship behind a clear seam so each slice is reviewable.
 | ID | Delivery | Measure | Done when | Status |
 |----|----------|---------|-----------|--------|
 | **B1** | Design + interface only (`FuzzyBackend`); BK remains default | correctness only (no perf claim) | Compiles; tests prove BK path unchanged; no public API break | **Done** (2026-07-23) |
-| **B2** | Symmetric-delete index build (edits ≤2) + lookup; behind flag/compile switch | build RSS/time; lookup correctness vs BK on golden set | Unit/golden: same hits as BK on agreed fixture **or** documented intentional diffs | pending |
-| **B3** | Wire into `FuzzyIndex` search path (feature flag default off) | before/after `BM_SearchFuzzy/*`; temporary probe OK if untracked | Flag off = baseline parity; flag on shows target latency drop on 20k/d=2 | pending |
+| **B2** | Symmetric-delete index build (edits ≤2) + lookup; behind flag/compile switch | build RSS/time; lookup correctness vs BK on golden set | Unit/golden: same hits as BK on agreed fixture **or** documented intentional diffs | **Done** (2026-07-23) |
+| **B3** | Wire into `FuzzyIndex` search path (feature flag default off) | before/after `BM_SearchFuzzy/*`; temporary probe OK if untracked | Flag off = baseline parity; flag on shows target latency drop on 20k/d=2 | **Done** (flag wired; perf claim deferred to B4) |
 | **B4** | Enable default **only if** metrics win | micro + recall@10 (or golden) | p50/p99 fuzzy improve vs Phase 0/micro baseline; recall@10 on happy path ≥ baseline; `save_baseline.sh` only after human accept | pending |
 | **B5** | Remove or demote BK from hot path (keep as test oracle if useful) | micro + correctness | Dead code path gone or clearly non-default; suite still green | pending |
 
 **B1 seam:** `include/hound/fuzzy_backend.hpp` (`FuzzyBackend` + `BkFuzzyBackend` +
-`make_default_fuzzy_backend()`). `FuzzyIndex` takes
-`unique_ptr<FuzzyBackend>` (default BK). Public search/upsert/HTTP unchanged.
-Tests: `tests/unit/test_fuzzy_backend.cpp` (parity vs `BkTree` + injectability).
+`FuzzyBackendKind`). `FuzzyIndex` takes `unique_ptr<FuzzyBackend>` (default BK).
+
+**B2/B3 SymSpell:** `include/hound/symspell_backend.hpp` (`SymSpellFuzzyBackend`,
+`make_fuzzy_backend`, env `HOUND_FUZZY_BACKEND`, CLI `--fuzzy-backend`).
+Compile switch: `-DHOUND_DEFAULT_FUZZY_BACKEND_SYMSPELL`. Default remains **BK**.
+Parity: unit fixture + golden corpus hit-id sets at `max_edit_distance=2`.
+Intentional scope: dictionary deletes indexed to ≤2; d>2 vs BK not claimed equal.
 
 **Target (hypothesis to validate, not a promise):** large drop on
 `BM_SearchFuzzy/20000/2` vs current baseline. A1 confirmed Lev/BK dominate
-(~83% leaf); a successful SymSpell path should move that share first.
+(~83% leaf); a successful SymSpell path should move that share first. Next:
+measure SymSpell-on micro (B4 gate) before flipping default.
 
 ---
 
@@ -343,6 +348,43 @@ linear merge as default.
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Phase B2/B3 SymSpell backend behind flag
+
+```text
+Hypothesis: Symmetric-delete lookup cuts BM_SearchFuzzy/20000/2 CPU vs BK
+            while preserving hit ids on the golden fixture (d≤2).
+Primary metric(s):   BM_SearchFuzzy/20000/2 cpu_time (BK vs SymSpell)
+Secondary metric(s): BM_SearchFuzzy/20000/1; BM_Insert/20000; golden hit-id parity
+Before: HOUND_FUZZY_BACKEND unset (BK) → micro_b3_bk.json
+After:  HOUND_FUZZY_BACKEND=symspell → micro_b3_symspell.json
+Correctness: ./scripts/run_correctness.sh — pass
+Micro gate:  default path still BK (no baseline flip); SymSpell opt-in measured
+DoD items:   [x] B2 SymSpell index+lookup  [x] parity vs BK d≤2
+             [x] B3 flag default off (CLI/env)  [x] flag-on latency drop shown
+Decision:    ship B2/B3 — do NOT flip default yet (B4); insert cost regresses hard
+```
+
+- Commands:
+  - `./scripts/run_correctness.sh`
+  - `./scripts/run_micro.sh benchmarks/results/micro_b3_bk.json`
+  - `HOUND_FUZZY_BACKEND=symspell ./scripts/run_micro.sh benchmarks/results/micro_b3_symspell.json`
+  - `./scripts/compare_bench.py …/micro_b3_bk.json …/micro_b3_symspell.json`
+- Metrics (cpu_time, same host):
+
+  | metric | BK (flag off) | SymSpell (flag on) | Δ |
+  |--------|---------------|--------------------|---|
+  | `BM_SearchFuzzy/20000/1` | 111 µs | 2.52 µs | **−97.7%** |
+  | `BM_SearchFuzzy/20000/2` | 885 µs | 18.1 µs | **−98.0%** |
+  | `BM_SearchExact/20000` | 3.26 µs | 0.93 µs | −71% (d=0 dict lookup) |
+  | `BM_Insert/20000` | 104 ms | 3817 ms | **+3553%** (delete index build) |
+
+- Correctness: pass (unit + golden BK↔SymSpell hit ids + HTTP + TSan)
+- Micro gate: N/A for default baseline (still BK); SymSpell is opt-in
+- Decision: **ship** B2/B3; **B4 blocked** until insert cost is acceptable or
+  amortized (lazy/build-once). Do not `save_baseline.sh` / flip default yet.
+- Notes: `--fuzzy-backend symspell` or `HOUND_FUZZY_BACKEND=symspell`;
+  compile `-DHOUND_DEFAULT_FUZZY_BACKEND_SYMSPELL`. Micro benches honor the env.
 
 ### 2026-07-23 — Phase B1 FuzzyBackend seam (BK default)
 

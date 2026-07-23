@@ -1,12 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "hound/bulk_loader.hpp"
 #include "hound/fuzzy_index.hpp"
+#include "hound/symspell_backend.hpp"
 
 namespace {
 
@@ -82,4 +84,30 @@ TEST_CASE("golden dataset recall@k and MRR", "[golden]") {
   // Controlled corpus: expect near-perfect recall.
   REQUIRE(recall_at_k >= 0.95);
   REQUIRE(mrr >= 0.80);
+}
+
+TEST_CASE("golden SymSpell FuzzyIndex matches BK hit ids (d=2)", "[golden][symspell][b2]") {
+  hound::FuzzyIndex bk_index(hound::make_fuzzy_backend(hound::FuzzyBackendKind::BkTree));
+  hound::FuzzyIndex sym_index(hound::make_fuzzy_backend(hound::FuzzyBackendKind::SymSpell));
+  REQUIRE(hound::load_csv(bk_index, golden_path("tests/golden/corpus.csv")) == 10);
+  REQUIRE(hound::load_csv(sym_index, golden_path("tests/golden/corpus.csv")) == 10);
+
+  auto cases = load_cases(golden_path("tests/golden/cases.csv"));
+  REQUIRE_FALSE(cases.empty());
+
+  for (const auto& c : cases) {
+    auto bk_hits = bk_index.search(c.query, {.limit = c.k, .max_edit_distance = 2});
+    auto sym_hits = sym_index.search(c.query, {.limit = c.k, .max_edit_distance = 2});
+
+    std::set<std::string> bk_ids;
+    std::set<std::string> sym_ids;
+    for (const auto& h : bk_hits) {
+      bk_ids.insert(h.id);
+    }
+    for (const auto& h : sym_hits) {
+      sym_ids.insert(h.id);
+    }
+    INFO("query=" << c.query);
+    REQUIRE(sym_ids == bk_ids);
+  }
 }

@@ -90,8 +90,10 @@ Detail: [`benchmarks/macro/README.md`](benchmarks/macro/README.md),
 
 Before large fuzzy refactors, follow [`docs/REFINEMENT.md`](docs/REFINEMENT.md):
 measure (`perf` / micro) first. Phase A (`perf` @ `BM_SearchFuzzy/20000/2`)
-**confirmed** BK-tree + Levenshtein dominate (~83% combined leaf); SymSpell /
-symmetric-delete remains the planned #1 win. Do not migrate to ART
+**confirmed** BK-tree + Levenshtein dominate (~83% combined leaf). SymSpell
+symmetric-delete is implemented behind a flag (`--fuzzy-backend symspell` /
+`HOUND_FUZZY_BACKEND=symspell`): ~98% faster `BM_SearchFuzzy/20000/2`, but
+insert is much slower — default remains BK until B4. Do not migrate to ART
 “because Typesense” at ~thousands of docs without a profile saying so.
 
 **Fuzzy PR gate metrics** (mandatory `compare_bench.py` names — see

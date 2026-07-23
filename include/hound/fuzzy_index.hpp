@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "hound/document.hpp"
-#include "hound/fuzzy_backend.hpp"
+#include "hound/symspell_backend.hpp"  // FuzzyBackend + factory (BK default)
 #include "hound/normalizer.hpp"
 #include "hound/score_merger.hpp"
 #include "hound/trie.hpp"
