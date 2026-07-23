@@ -13,10 +13,16 @@ How to run the suite day-to-day: [`AGENTS.md`](../AGENTS.md),
 
 ## Status — where we stopped (2026-07-23)
 
-**Paused after Phase D (D1–D3).** Phases **A–D are complete** on the working
-tree (commit when ready). Next planned slices: **E1** (mixed-load concurrency
-probe) or **#1** (SymSpell RSS/`prepare`). Parallel track: SymSpell RAM/
-`prepare` ([issue #1](https://github.com/carvalhosauro/hound/issues/1)).
+**Phase D complete (D1–D3).** Phases **A–D** are done and committed on `main`
+(`515569e`, `65e8a46`, `9e0a490`). Next planned slices: **E1** (mixed-load
+concurrency probe) or **#1** (SymSpell RSS/`prepare`).
+
+Follow-up test gaps (optional hardening, not Phase D blockers):
+[#2](https://github.com/carvalhosauro/hound/issues/2) CLI/`HOUND_RANKER`,
+[#3](https://github.com/carvalhosauro/hound/issues/3) HTTP aliases,
+[#4](https://github.com/carvalhosauro/hound/issues/4) macro smoke,
+[#5](https://github.com/carvalhosauro/hound/issues/5) concurrent `?ranker=`
+(ties into E1).
 
 ### Done (shipped)
 
@@ -25,9 +31,7 @@ probe) or **#1** (SymSpell RSS/`prepare`). Parallel track: SymSpell RAM/
 | **A** | `perf` + flamegraph @ `BM_SearchFuzzy/20000/2`; gate metrics frozen | Confirmed BK+Levenshtein ~83% CPU — guided SymSpell |
 | **B1–B5** | `FuzzyBackend` seam → SymSpell → default → BK demoted to oracle | Fuzzy @ 20k/d=2 **~−99%** vs old BK; golden recall held |
 | **C1–C2** | Adaptive edit distance by query length + HTTP/API override | Short queries no longer use d=2 by default |
-| **D1** | `Ranker` interface; `ScoreMerger` as default linear ranker | Same scores; `BM_ScoreMerge` + search gates within +10% |
-| **D2** | Optional Typesense-style `TieBreakRanker` + order fixtures | Default `ScoreMerger` unchanged; opt-in via ctor inject |
-| **D3** | HTTP `?ranker=` + CLI `--ranker` / `HOUND_RANKER` | Default JSON unchanged; invalid ranker → 400 |
+| **D1–D3** | Pluggable `Ranker` → `TieBreakRanker` opt-in → CLI/HTTP wire | Default `ScoreMerger` + JSON unchanged; `?ranker=` / `--ranker` |
 | **Baseline** | Human `save_baseline.sh` (SymSpell default) | `baselines/micro_baseline.json` = new `compare_bench` reference |
 
 **Accepted tradeoff (documented):** SymSpell ingest/`prepare` slower and RSS much
@@ -42,12 +46,13 @@ or write churn dominates. Backend use cases: § below Phase B + README/AGENTS.
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
 | **#1** | Compress/intern SymSpell delete map | Performance follow-up (RSS + prepare) |
+| **#2–#5** | Ranker test hardening (CLI, aliases, macro, concurrency) | Optional; DoD for D already met |
 
 ### Suggested next steps (pick one)
 
 1. **E1** — mixed-load macro probe if production writes under search load matter.
 2. **Issue #1** — reduce SymSpell delete-map RSS/`prepare` (measure Insert/20k + RSS probe).
-3. **G1** — optional `fields=id` projection (product polish).
+3. **#2–#5** — optional ranker test hardening (or **G1** `fields=id` polish).
 
 Do not start ART/layout (**F**) without a new profile saying trie/layout is the
 bottleneck (search CPU already moved off BK/Lev).
@@ -173,7 +178,7 @@ Notes:
 
 | Learning | Status | Evidence |
 |----------|--------|----------|
-| Pluggable weighting model | **Partial (D1)** | `Ranker` interface; `ScoreMerger` default |
+| Pluggable weighting model | **Applied (D1–D3)** | `Ranker` + `ScoreMerger` default; `TieBreakRanker`; CLI/HTTP select |
 | Compressed on-disk postings + B-tree | **Future** | In-memory + full snapshot today |
 
 ### 4. SymSpell
@@ -350,10 +355,13 @@ HTTP: optional query param `max_edit_distance`; omit for adaptive.
 
 ---
 
-### Phase D — Pluggable ranking
+### Phase D — Pluggable ranking ✅ (2026-07-23)
 
 **Goal:** Replace hard-wired `ScoreMerger` with a small interface; keep
 linear merge as default.
+
+**Exit Phase D:** D1 seam + D2 optional tie-break + D3 CLI/HTTP wire; default
+scores/JSON unchanged; correctness green. ✅
 
 | ID | Delivery | Measure | Done when | Status |
 |----|----------|---------|-----------|--------|
@@ -398,6 +406,11 @@ Typesense-style lexicographic order (default Typesense
 - Invalid `?ranker=` → HTTP 400; response JSON fields unchanged when valid.
 - `SearchOptions::ranker` is `optional<RankerKind>` (nullopt = index-owned ranker).
 - Documented in README.
+- Optional follow-ups (not D blockers):
+  [#2](https://github.com/carvalhosauro/hound/issues/2) CLI env harness,
+  [#3](https://github.com/carvalhosauro/hound/issues/3) HTTP aliases e2e,
+  [#4](https://github.com/carvalhosauro/hound/issues/4) macro `hey` smoke,
+  [#5](https://github.com/carvalhosauro/hound/issues/5) concurrent `?ranker=` / E1.
 
 ---
 
@@ -452,6 +465,24 @@ Typesense-style lexicographic order (default Typesense
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Phase D closed (commits + follow-up issues)
+
+```text
+Hypothesis: Phase D DoD is met; remaining gaps are optional test hardening.
+Primary metric(s):   D1–D3 checklist + commits on main
+Secondary metric(s): GitHub issues #2–#5 filed for CLI/aliases/macro/concurrency
+Correctness: already green at D3 ship
+Micro gate:  N/A (docs/status only)
+Decision:    ship — Phase D ✅; next E1 or #1
+```
+
+- Commits: `515569e` (D1–D2 core), `65e8a46` (D3 API), `9e0a490` (docs)
+- Follow-ups: [#2](https://github.com/carvalhosauro/hound/issues/2),
+  [#3](https://github.com/carvalhosauro/hound/issues/3),
+  [#4](https://github.com/carvalhosauro/hound/issues/4),
+  [#5](https://github.com/carvalhosauro/hound/issues/5)
+- Decision: **ship** — Phase D exit met
 
 ### 2026-07-23 — Phase D3 wire ranker through HTTP / CLI
 
@@ -789,6 +820,7 @@ Template for later slices:
 1. **Next on roadmap:** mixed-load writers vs readers (**E1–E2**), or SymSpell
    footprint **#1**, depending on production pain.
 2. **SymSpell footprint:** compress/intern delete map — [#1](https://github.com/carvalhosauro/hound/issues/1) (RSS + `prepare`).
-3. Revisit ART / contiguous layout only after a post-SymSpell profile (**F0→F1**).
-4. On-disk compressed postings if snapshot rebuild/RSS hurts (**F2**).
-5. Optional `fields=id` projection without removing score fields (**G1**).
+3. **Ranker test hardening (optional):** [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5).
+4. Revisit ART / contiguous layout only after a post-SymSpell profile (**F0→F1**).
+5. On-disk compressed postings if snapshot rebuild/RSS hurts (**F2**).
+6. Optional `fields=id` projection without removing score fields (**G1**).
