@@ -13,11 +13,20 @@ How to run the suite day-to-day: [`AGENTS.md`](../AGENTS.md),
 
 ## Status — where we stopped (2026-07-23)
 
-**Phase D + issue #1 complete.** Phases **A–D** and SymSpell delete-map
-compaction ([#1](https://github.com/carvalhosauro/hound/issues/1) **closed**)
-are on `main`. SymSpell @20k RSS ~**226 MB** (was ~418 MB).
+**Paused after Phase D + issue #1.** Phases **A–D** complete; SymSpell
+delete-map compaction ([#1](https://github.com/carvalhosauro/hound/issues/1))
+**closed**. Next planned slice: **Phase E1** (mixed-load concurrency probe).
 
-Follow-up test gaps (optional hardening, not blockers):
+| Milestone | Commits (local `main`) |
+|-----------|------------------------|
+| **D1–D3** | `515569e` Ranker+TieBreak · `65e8a46` CLI/HTTP · `9e0a490`/`f270991` docs |
+| **#1** | `e669abd` uint32 postings · `7e35c17` tagged values · closed on GitHub |
+
+SymSpell @20k RSS ~**226 MB** (was ~418 MB before #1). Optional micro baseline
+refresh (`save_baseline.sh`) still a **human** decision — Insert is now much
+faster than the versioned SymSpell baseline.
+
+Follow-up test gaps (optional, not blockers):
 [#2](https://github.com/carvalhosauro/hound/issues/2) CLI/`HOUND_RANKER`,
 [#3](https://github.com/carvalhosauro/hound/issues/3) HTTP aliases,
 [#4](https://github.com/carvalhosauro/hound/issues/4) macro smoke,
@@ -33,26 +42,26 @@ Follow-up test gaps (optional hardening, not blockers):
 | **C1–C2** | Adaptive edit distance by query length + HTTP/API override | Short queries no longer use d=2 by default |
 | **D1–D3** | Pluggable `Ranker` → `TieBreakRanker` opt-in → CLI/HTTP wire | Default `ScoreMerger` + JSON unchanged; `?ranker=` / `--ranker` |
 | **#1** | uint32 postings + tagged single/multi delete values | RSS @20k **~418→226 MB** (−46%); Insert/prepare faster; fuzzy OK; **closed** |
-| **Baseline** | Human `save_baseline.sh` (SymSpell default) | `baselines/micro_baseline.json` = new `compare_bench` reference |
+| **Baseline** | Human `save_baseline.sh` (SymSpell default, pre-#1) | `baselines/micro_baseline.json` — consider refresh after #1 |
 
 **Accepted tradeoff (documented):** SymSpell ingest/`prepare` still slower and RSS
 higher than BK (~226 MB vs ~30 MB @ 20k). Use `--fuzzy-backend bk` when RAM or
 write churn dominates. Further SymSpell ideas (denser open-addressing map,
-incremental deletes) stay in the roadmap below — **no new GitHub issues** until
+incremental deletes) stay as roadmap notes only — **no new GitHub issues** until
 there is concrete pain or a planned slice.
 
 ### Not started yet
 
 | Phase | Theme | Notes |
 |-------|-------|-------|
-| **E** | Double-buffer / non-blocking writers | **Next** on the roadmap order |
+| **E** | Double-buffer / non-blocking writers | **Next** — start at **E1** mixed-load probe |
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
 | **#2–#5** | Ranker test hardening (CLI, aliases, macro, concurrency) | Optional; DoD for D already met |
 
 ### Suggested next steps (pick one)
 
-1. **E1** — mixed-load macro probe if production writes under search load matter.
+1. **E1** — mixed-load macro probe (search p99 during writes).
 2. **Human** — optional `save_baseline.sh` to lock faster Insert after #1.
 3. **#2–#5** — optional ranker test hardening (or **G1** `fields=id` polish).
 
@@ -313,6 +322,8 @@ in `bk_fuzzy_backend.hpp` + raw `BkTree` for unit oracles. Escape hatch unchange
 **Baseline (human-accepted 2026-07-23):** `baselines/micro_baseline.json` refreshed
 from SymSpell-default micro (`micro_20260723T200401Z.json`). Gate metrics in that
 file: Insert/20k ~2703 ms; SearchFuzzy/20k/2 ~7.3 µs; SearchExact/20k ~0.91 µs.
+Post-#1 same-host Insert/20k ~834 ms and RSS ~226 MB — optional human
+`save_baseline.sh` if the gate should track the new Insert level.
 
 ### Fuzzy backends — use cases
 
@@ -416,7 +427,7 @@ Typesense-style lexicographic order (default Typesense
 
 ---
 
-### Phase E — Concurrency beyond `shared_mutex`
+### Phase E — Concurrency beyond `shared_mutex` ← **next**
 
 **Goal:** Writers do not stall readers under mixed load (Sonic-like).
 
@@ -458,15 +469,34 @@ Typesense-style lexicographic order (default Typesense
 | **P2** | Adaptive edit distance | **C1–C2** |
 | **P3** | Pluggable `Ranker` | **D1** |
 | **P4** | Tie-break ranker | **D2–D3** |
-| **P5** | Double-buffer / non-blocking writers | **E1–E2** |
+| **P5** | Double-buffer / non-blocking writers | **E1–E2** ← next |
 | **P6** | Background consolidation | **E3** |
 | **P7** | SymSpell compound splitting | **G2** |
 | **P8** | Contiguous layout / ART | **F0–F1** |
 | **P9** | On-disk index | **F2** |
+| — | SymSpell delete-map RSS/`prepare` | **#1** ✅ closed |
 
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Close issue #1 (SymSpell delete-map compaction)
+
+```text
+Hypothesis: Two shipped slices meet #1 acceptance (RSS + prepare/Insert down,
+            fuzzy gates hold); remaining ideas are optional future work.
+Primary metric(s):   RSS @20k ~418→226 MB (−46%); BM_Insert/20000 much faster
+Secondary metric(s): BM_SearchFuzzy/20000/{1,2} within gate; correctness green
+Correctness: already green at last #1 slice
+Micro gate:  pass vs versioned baseline (Insert faster than baseline)
+Decision:    close #1 — no new GitHub issues for denser map / incremental deletes yet
+```
+
+- Shipped: `e669abd` (uint32 postings), `7e35c17` (tagged single/multi values)
+- Rejected (measured): arena/`string_view` keys; split one/multi maps
+- Roadmap-only leftovers: denser open-addressing map; incremental deletes on upsert
+- Optional: human `save_baseline.sh` to refresh Insert gate numbers
+- Decision: **close** [#1](https://github.com/carvalhosauro/hound/issues/1)
 
 ### 2026-07-23 — Issue #1 slice: tagged single/multi delete values
 
@@ -481,7 +511,7 @@ After:  tagged map — rss≈226 MB; Insert≈834 ms; Fuzzy/2≈5.60 µs
 Correctness: ./scripts/run_correctness.sh — pass
 Micro gate:  vs baseline pass (Insert −69%, Fuzzy faster/ok)
 DoD items:   [x] measured  [x] tagged values  [x] parity  [x] no fuzzy regress
-Decision:    ship — arena/string_view keys rejected earlier (SSO locality)
+Decision:    ship — then close #1 (acceptance met with uint32 slice)
 ```
 
 - Rejected earlier this session: byte-arena + `string_view` keys — RSS −25 MB but
@@ -489,7 +519,7 @@ Decision:    ship — arena/string_view keys rejected earlier (SSO locality)
 - Split one/multi maps: great RSS but two probes on miss → fuzzy regress; replaced
   by tagged single-map design.
 - Metrics vs pre-#1 (~418 MB / slow Insert): RSS **−46%**, Insert much faster.
-- Decision: **ship**; later **#1 closed** after this + uint32 slice met acceptance.
+- Decision: **ship**; #1 closed after this + uint32 slice.
 
 ### 2026-07-23 — Issue #1 slice: uint32 delete postings
 
@@ -504,7 +534,7 @@ After:  probe rss_delta_mb≈327; prepare_ms≈1042; micro_iss1_after.json
 Correctness: ./scripts/run_correctness.sh — pass
 Micro gate:  compare_bench vs baseline — pass (Insert/fuzzy improved or ok)
 DoD items:   [x] measured  [x] uint32 postings  [x] parity  [x] suite green
-Decision:    ship slice — leave #1 open for intern keys / denser map / incremental
+Decision:    ship slice — continue #1 (tagged values next)
 ```
 
 - Commands:
@@ -522,8 +552,8 @@ Decision:    ship slice — leave #1 open for intern keys / denser map / increme
 
 - Correctness: pass (incl. golden BK↔SymSpell + TSan)
 - Micro gate: pass (no `save_baseline.sh` — Insert already faster than versioned baseline)
-- Decision: **ship** slice; **#1 remains open**
-- Notes: Delete **keys** are still `std::string` map keys — next leverage for RSS.
+- Decision: **ship** slice; proceed to tagged-values slice
+- Notes: Delete **keys** are still `std::string` map keys — arena attempt later rejected (SSO).
 
 ### 2026-07-23 — Phase D closed (commits + follow-up issues)
 
@@ -533,7 +563,7 @@ Primary metric(s):   D1–D3 checklist + commits on main
 Secondary metric(s): GitHub issues #2–#5 filed for CLI/aliases/macro/concurrency
 Correctness: already green at D3 ship
 Micro gate:  N/A (docs/status only)
-Decision:    ship — Phase D ✅; next E1 or #1
+Decision:    ship — Phase D ✅; next E1 or #1 (then #1 closed same day)
 ```
 
 - Commits: `515569e` (D1–D2 core), `65e8a46` (D3 API), `9e0a490` (docs)
@@ -556,7 +586,7 @@ After:  test_http_api [d3] + --ranker / HOUND_RANKER / ?ranker=
 Correctness: ./scripts/run_correctness.sh — pass
 Micro gate:  N/A (default rank path unchanged when ?ranker omitted)
 DoD items:   [x] query param  [x] CLI/env  [x] docs  [x] no JSON break  [x] suite green
-Decision:    ship — Phase D complete; next E1 or #1
+Decision:    ship — Phase D complete; next E1 or #1 (then #1 closed same day)
 ```
 
 - Surfaces: `--ranker`, `HOUND_RANKER`, `GET /search?ranker=linear|tie_break`
