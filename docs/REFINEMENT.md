@@ -13,9 +13,10 @@ How to run the suite day-to-day: [`AGENTS.md`](../AGENTS.md),
 
 ## Status — where we stopped (2026-07-23)
 
-**Paused after Phase C.** Phases **A–C are complete** and on `main`.
-Next planned slice: **Phase D1** (pluggable `Ranker`). Parallel track:
-SymSpell RAM/`prepare` ([issue #1](https://github.com/carvalhosauro/hound/issues/1)).
+**Paused after Phase D (D1–D3).** Phases **A–D are complete** on the working
+tree (commit when ready). Next planned slices: **E1** (mixed-load concurrency
+probe) or **#1** (SymSpell RSS/`prepare`). Parallel track: SymSpell RAM/
+`prepare` ([issue #1](https://github.com/carvalhosauro/hound/issues/1)).
 
 ### Done (shipped)
 
@@ -24,6 +25,9 @@ SymSpell RAM/`prepare` ([issue #1](https://github.com/carvalhosauro/hound/issues
 | **A** | `perf` + flamegraph @ `BM_SearchFuzzy/20000/2`; gate metrics frozen | Confirmed BK+Levenshtein ~83% CPU — guided SymSpell |
 | **B1–B5** | `FuzzyBackend` seam → SymSpell → default → BK demoted to oracle | Fuzzy @ 20k/d=2 **~−99%** vs old BK; golden recall held |
 | **C1–C2** | Adaptive edit distance by query length + HTTP/API override | Short queries no longer use d=2 by default |
+| **D1** | `Ranker` interface; `ScoreMerger` as default linear ranker | Same scores; `BM_ScoreMerge` + search gates within +10% |
+| **D2** | Optional Typesense-style `TieBreakRanker` + order fixtures | Default `ScoreMerger` unchanged; opt-in via ctor inject |
+| **D3** | HTTP `?ranker=` + CLI `--ranker` / `HOUND_RANKER` | Default JSON unchanged; invalid ranker → 400 |
 | **Baseline** | Human `save_baseline.sh` (SymSpell default) | `baselines/micro_baseline.json` = new `compare_bench` reference |
 
 **Accepted tradeoff (documented):** SymSpell ingest/`prepare` slower and RSS much
@@ -34,17 +38,16 @@ or write churn dominates. Backend use cases: § below Phase B + README/AGENTS.
 
 | Phase | Theme | Notes |
 |-------|-------|-------|
-| **D** | Pluggable `Ranker` / tie-break | **Next** on the roadmap order |
-| **E** | Double-buffer / non-blocking writers | After D unless contention forces earlier |
+| **E** | Double-buffer / non-blocking writers | **Next** on the roadmap order |
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
 | **#1** | Compress/intern SymSpell delete map | Performance follow-up (RSS + prepare) |
 
 ### Suggested next steps (pick one)
 
-1. **D1** — `Ranker` interface + keep linear `ScoreMerger` as default (correctness + `BM_ScoreMerge`).
+1. **E1** — mixed-load macro probe if production writes under search load matter.
 2. **Issue #1** — reduce SymSpell delete-map RSS/`prepare` (measure Insert/20k + RSS probe).
-3. **E1** — mixed-load macro probe if production writes under search load matter first.
+3. **G1** — optional `fields=id` projection (product polish).
 
 Do not start ART/layout (**F**) without a new profile saying trie/layout is the
 bottleneck (search CPU already moved off BK/Lev).
@@ -141,7 +144,7 @@ Notes:
 | Prefix | Trie with per-node `unique_ptr` + `unordered_map<char,…>` | `include/hound/trie.hpp` |
 | Fuzzy | **Default SymSpell**; BK demoted to oracle/escape (`bk_fuzzy_backend.hpp`) | `symspell_backend.hpp`, `bk_fuzzy_backend.hpp`, `bk_tree.hpp` |
 | Orchestration | Sync upsert into Trie + FuzzyBackend + doc map | `include/hound/fuzzy_index.hpp` |
-| Ranking | Linear `α·text + (1-α)·norm(external)` | `include/hound/score_merger.hpp` |
+| Ranking | Pluggable `Ranker`; default `ScoreMerger`; optional `TieBreakRanker` via ctor / CLI / `?ranker=` | `ranker.hpp`, `ranker_factory.hpp`, `score_merger.hpp`, `tie_break_ranker.hpp` |
 | Concurrency | `shared_mutex` on `FuzzyIndex`; HTTP still has an API-level mutex for snapshot writes | `fuzzy_index.hpp`, `http_api.hpp` |
 | Persistence | Full binary snapshot rebuild on load | `include/hound/snapshot.hpp` |
 | JSON API | Returns `id`, `score`, `text_relevance`, `external_score` | `/search` |
@@ -164,13 +167,13 @@ Notes:
 |----------|--------|----------|
 | ART + leaf posting lists | **Not applied** | Classic trie; postings = `unordered_set` of ids |
 | Worth migrating ART at N ~ thousands? | **Not now** | Pre-SymSpell bottleneck was BK/Lev; re-profile before ART (**F0**) |
-| Tie-break ranking pipeline | **Not applied** | Linear `ScoreMerger` only |
+| Tie-break ranking pipeline | **Applied (D2)** | `TieBreakRanker` opt-in; default still linear `ScoreMerger` |
 
 ### 3. Xapian
 
 | Learning | Status | Evidence |
 |----------|--------|----------|
-| Pluggable weighting model | **Not applied** | Concrete `ScoreMerger` |
+| Pluggable weighting model | **Partial (D1)** | `Ranker` interface; `ScoreMerger` default |
 | Compressed on-disk postings + B-tree | **Future** | In-memory + full snapshot today |
 
 ### 4. SymSpell
@@ -347,16 +350,54 @@ HTTP: optional query param `max_edit_distance`; omit for adaptive.
 
 ---
 
-### Phase D — Pluggable ranking ← **next**
+### Phase D — Pluggable ranking
 
 **Goal:** Replace hard-wired `ScoreMerger` with a small interface; keep
 linear merge as default.
 
 | ID | Delivery | Measure | Done when | Status |
 |----|----------|---------|-----------|--------|
-| **D1** | `Ranker` interface + adapt current merger | unit + `BM_ScoreMerge` | Same scores as today on golden; ScoreMerge micro within gate | **pending** (start here) |
-| **D2** | Typesense-style tie-break ranker (optional) | ranking fixture (order stability) | Fixture documents expected order; default ranker unchanged unless opted in | pending |
-| **D3** | Wire optional ranker through HTTP (if needed) | macro smoke / integration | Query param or config documented; no breaking default JSON | pending |
+| **D1** | `Ranker` interface + adapt current merger | unit + `BM_ScoreMerge` | Same scores as today on golden; ScoreMerge micro within gate | **Done** (2026-07-23) |
+| **D2** | Typesense-style tie-break ranker (optional) | ranking fixture (order stability) | Fixture documents expected order; default ranker unchanged unless opted in | **Done** (2026-07-23) |
+| **D3** | Wire optional ranker through HTTP (if needed) | macro smoke / integration | Query param or config documented; no breaking default JSON | **Done** (2026-07-23) |
+
+#### D1 — Ranker seam
+
+- Interface: `include/hound/ranker.hpp` (`Ranker::rank(candidates, RankOptions)`).
+- Default: `ScoreMerger` implements `Ranker`; `make_default_ranker()`.
+- `FuzzyIndex` takes optional `unique_ptr<Ranker>` (same pattern as `FuzzyBackend`).
+- `alpha` is per-call via `RankOptions` so a shared ranker stays safe under concurrent search.
+- No public HTTP/JSON change.
+
+#### D2 — TieBreakRanker (opt-in)
+
+Typesense-style lexicographic order (default Typesense
+`_text_match:desc,default_sorting_field:desc`):
+
+| Priority | Field | Order |
+|----------|-------|-------|
+| 1 | `text_relevance` | desc |
+| 2 | `external_score` | desc |
+| 3 | `id` | asc |
+
+- Header: `include/hound/tie_break_ranker.hpp` (`make_tie_break_ranker()`).
+- `RankOptions::alpha` ignored; `hit.score` = `text_relevance` (primary key).
+- Opt-in: `FuzzyIndex(make_default_fuzzy_backend(), make_tie_break_ranker())`.
+- Default path unchanged (`make_default_ranker()` → `ScoreMerger`).
+- Fixtures: `tests/unit/test_tie_break_ranker.cpp` lock equal-text / text-vs-external order
+  and contrast vs linear `ScoreMerger`.
+
+#### D3 — HTTP / CLI wire
+
+| Surface | How | Default |
+|---------|-----|---------|
+| Process | `--ranker linear\|tie_break` or `HOUND_RANKER` | `linear` |
+| Per-query | `GET /search?ranker=linear\|tie_break` | omit → process default |
+| Factory | `ranker_factory.hpp` (`make_ranker`, `parse_ranker_kind`) | — |
+
+- Invalid `?ranker=` → HTTP 400; response JSON fields unchanged when valid.
+- `SearchOptions::ranker` is `optional<RankerKind>` (nullopt = index-owned ranker).
+- Documented in README.
 
 ---
 
@@ -411,6 +452,91 @@ linear merge as default.
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Phase D3 wire ranker through HTTP / CLI
+
+```text
+Hypothesis: Clients can select linear vs tie_break ranking without a custom
+            binary; omitting ?ranker keeps today’s ScoreMerger default and
+            JSON shape.
+Primary metric(s):   HTTP integration order + 400 on invalid ranker
+Secondary metric(s): default omit path == linear; docs in README
+Before: N/A (new optional query/CLI surface)
+After:  test_http_api [d3] + --ranker / HOUND_RANKER / ?ranker=
+Correctness: ./scripts/run_correctness.sh — pass
+Micro gate:  N/A (default rank path unchanged when ?ranker omitted)
+DoD items:   [x] query param  [x] CLI/env  [x] docs  [x] no JSON break  [x] suite green
+Decision:    ship — Phase D complete; next E1 or #1
+```
+
+- Surfaces: `--ranker`, `HOUND_RANKER`, `GET /search?ranker=linear|tie_break`
+- Aliases: `score_merger`→linear, `tiebreak`→tie_break
+- Correctness: pass (integration locks equal-text order for both rankers)
+- Micro gate: N/A
+- Decision: **ship**
+
+### 2026-07-23 — Phase D2 Typesense-style TieBreakRanker (opt-in)
+
+```text
+Hypothesis: Optional lexicographic ranker (text → external → id) gives
+            Typesense-like tie-break ordering without changing default
+            ScoreMerger blend behavior.
+Primary metric(s):   ranking fixture order stability (unit)
+Secondary metric(s): default FuzzyIndex order unchanged; correctness suite
+Before: N/A (new optional path)
+After:  test_tie_break_ranker fixtures + default still ScoreMerger
+Correctness: ./scripts/run_correctness.sh — pass
+Micro gate:  N/A (default search/rank path unchanged; no ScoreMerge edit)
+DoD items:   [x] TieBreakRanker  [x] fixtures document order  [x] default unchanged
+             [x] FuzzyIndex inject works  [x] suite green
+Decision:    ship — proceed to D3 (HTTP wire) only if product needs it
+```
+
+- Order: `text_relevance` desc → `external_score` desc → `id` asc
+- Opt-in: `make_tie_break_ranker()`; default `make_default_ranker()` still `ScoreMerger`
+- Contrasts locked: equal-text fixture differs from `ScoreMerger(alpha=1)`;
+  text-primary beats high-external (unlike `ScoreMerger(alpha=0)`)
+- Correctness: pass (54 tests + TSan)
+- Micro gate: N/A
+- Decision: **ship**
+
+### 2026-07-23 — Phase D1 Ranker interface + ScoreMerger default
+
+```text
+Hypothesis: Introduce Ranker so alternate rankers can plug in later without
+            changing FuzzyIndex call sites; ScoreMerger remains default and
+            preserves today’s linear α blend scores.
+Primary metric(s):   BM_ScoreMerge/{64,256,1024}; score parity unit tests
+Secondary metric(s): BM_SearchFuzzy/20000/{1,2}; BM_SearchExact/20000 (guards)
+Before: baselines/micro_baseline.json (ScoreMerge + search gates)
+After:  micro_d1_gate.json (quiet re-run of gate names)
+Correctness: ./scripts/run_correctness.sh — pass
+Micro gate:  compare_bench.py — pass (ScoreMerge ±4%; SearchFuzzy/Exact within gate)
+DoD items:   [x] Ranker interface  [x] ScoreMerger implements  [x] FuzzyIndex wired
+             [x] unit parity + inject test  [x] suite green  [x] micro gate
+Decision:    ship — proceed to D2 (optional tie-break ranker)
+```
+
+- Commands:
+  - `./scripts/run_correctness.sh`
+  - `./build-bench/hound_bench_micro --benchmark_filter='BM_SearchFuzzy/20000/|BM_SearchExact/20000|BM_ScoreMerge' --benchmark_min_time=0.5s`
+  - `./scripts/compare_bench.py baselines/micro_baseline.json benchmarks/results/micro_d1_gate.json`
+- Metrics (cpu_time vs baseline, quiet gate re-run):
+
+  | metric | Δ |
+  |--------|---|
+  | `BM_ScoreMerge/64` | +2.7% |
+  | `BM_ScoreMerge/256` | −2.1% |
+  | `BM_ScoreMerge/1024` | +3.4% |
+  | `BM_SearchFuzzy/20000/1` | −1.3% |
+  | `BM_SearchFuzzy/20000/2` | −5.6% |
+  | `BM_SearchExact/20000` | +0.3% |
+
+- Correctness: pass (incl. TSan)
+- Micro gate: pass
+- Decision: **ship**
+- Notes: Full `run_micro.sh` under high load_avg showed false REGRESS noise on
+  ScoreMerge/search; isolated gate re-run is authoritative for D1.
 
 ### 2026-07-23 — Accept SymSpell micro baseline
 
@@ -660,9 +786,9 @@ Template for later slices:
 
 ## Future decisions
 
-1. **Next on roadmap:** pluggable `Ranker` (**D1**), then optional tie-break (**D2–D3**).
+1. **Next on roadmap:** mixed-load writers vs readers (**E1–E2**), or SymSpell
+   footprint **#1**, depending on production pain.
 2. **SymSpell footprint:** compress/intern delete map — [#1](https://github.com/carvalhosauro/hound/issues/1) (RSS + `prepare`).
-3. Mixed-load writers vs readers (**E1–E2**) if production contention shows up.
-4. Revisit ART / contiguous layout only after a post-SymSpell profile (**F0→F1**).
-5. On-disk compressed postings if snapshot rebuild/RSS hurts (**F2**).
-6. Optional `fields=id` projection without removing score fields (**G1**).
+3. Revisit ART / contiguous layout only after a post-SymSpell profile (**F0→F1**).
+4. On-disk compressed postings if snapshot rebuild/RSS hurts (**F2**).
+5. Optional `fields=id` projection without removing score fields (**G1**).

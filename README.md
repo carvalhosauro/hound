@@ -16,6 +16,7 @@ Example datasets are synthetic.
   **BK-tree** oracle/escape hatch)
 - Adaptive max edit distance by query length (optional fixed override)
 - Configurable merge: `final = alpha * text_relevance + (1-alpha) * norm(external_score)`
+  (default); optional Typesense-style `tie_break` ranker (`text` → `external` → `id`)
 - HTTP JSON API
 - Bulk load from generic CSV/JSON
 - Optional binary snapshot across restarts
@@ -54,6 +55,10 @@ Binaries:
 # force BK-tree fuzzy backend (lower RAM / faster ingest; slower fuzzy search)
 ./build/hound --fuzzy-backend bk --load examples/sample.csv --port 8080
 # equivalent: HOUND_FUZZY_BACKEND=bk ./build/hound ...
+
+# optional Typesense-style tie-break ranking (process default; per-query override below)
+./build/hound --ranker tie_break --load examples/sample.csv --port 8080
+# equivalent: HOUND_RANKER=tie_break ./build/hound ...
 ```
 
 ### Fuzzy backends — which to use
@@ -64,6 +69,16 @@ Binaries:
 | **BK-tree** | `--fuzzy-backend bk` or `HOUND_FUZZY_BACKEND=bk` | Tight RAM, frequent upserts/rebuilds, or BK as test oracle | Ingest/RSS cheaper; fuzzy search ~**ms** at 20k (Levenshtein-heavy) |
 
 Compile-time default override: `-DHOUND_DEFAULT_FUZZY_BACKEND_BK`.
+
+### Rankers — which to use
+
+| Ranker | Select | Behavior |
+|--------|--------|----------|
+| **linear** (default) | omit, `--ranker linear`, or `?ranker=linear` | `α·text + (1-α)·norm(external)`; ties by `id` |
+| **tie_break** | `--ranker tie_break`, `HOUND_RANKER=tie_break`, or `?ranker=tie_break` | `text_relevance` desc → `external_score` desc → `id` asc (`alpha` ignored) |
+
+Per-query `?ranker=` overrides the process default for that search only. Response
+JSON shape is unchanged (`id`, `score`, `text_relevance`, `external_score`).
 
 Detail and roadmap: [docs/REFINEMENT.md](docs/REFINEMENT.md).
 
@@ -79,6 +94,8 @@ curl -s -X POST localhost:8080/index \
 curl -s 'localhost:8080/search?q=ada%20ash&limit=5&alpha=0.7'
 # optional fixed edit distance (omit for adaptive length→distance):
 # curl -s 'localhost:8080/search?q=ada&max_edit_distance=1'
+# optional ranker override (omit for process default / linear):
+# curl -s 'localhost:8080/search?q=ada%20ash&ranker=tie_break'
 
 curl -s -X DELETE localhost:8080/index/1
 ```
