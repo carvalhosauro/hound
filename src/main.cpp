@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -16,7 +17,7 @@ void usage(const char* argv0) {
       << "Usage: " << argv0
       << " [--host HOST] [--port PORT] [--snapshot PATH] [--load FILE]\n"
       << "       [--fuzzy-backend bk|symspell] [--ranker linear|tie_break]\n"
-      << "       [--publish-swap]\n"
+      << "       [--publish-swap] [--consolidate-ms MS]\n"
       << "\n"
       << "Hound — fuzzy autocomplete sidecar (HTTP JSON).\n"
       << "  --host            bind address (default 127.0.0.1)\n"
@@ -29,7 +30,9 @@ void usage(const char* argv0) {
       << "                    (overrides HOUND_RANKER env if set; per-query\n"
       << "                    ?ranker= still overrides for a single search)\n"
       << "  --publish-swap    E2: readers use atomic snapshot publish (slower writes);\n"
-      << "                    default is shared_mutex. Also HOUND_PUBLISH_SWAP=1\n";
+      << "                    default is shared_mutex. Also HOUND_PUBLISH_SWAP=1\n"
+      << "  --consolidate-ms  E3: background publish interval in ms (requires --publish-swap);\n"
+      << "                    0/omit = publish each write (E2). Also HOUND_CONSOLIDATE_MS\n";
 }
 
 }  // namespace
@@ -42,6 +45,7 @@ int main(int argc, char** argv) {
   hound::FuzzyBackendKind fuzzy_kind = hound::fuzzy_backend_kind_from_env();
   hound::RankerKind ranker_kind = hound::ranker_kind_from_env();
   hound::PublishMode publish_mode = hound::publish_mode_from_env();
+  auto consolidate_ms = hound::consolidate_ms_from_env();
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -74,6 +78,15 @@ int main(int argc, char** argv) {
       }
     } else if (arg == "--publish-swap") {
       publish_mode = hound::PublishMode::PublishSwap;
+    } else if (arg == "--consolidate-ms") {
+      const std::string value = need("--consolidate-ms");
+      char* end = nullptr;
+      const unsigned long v = std::strtoul(value.c_str(), &end, 10);
+      if (end == value.c_str() || (end != nullptr && *end != '\0')) {
+        std::cerr << "invalid --consolidate-ms: " << value << " (unsigned ms)\n";
+        return 2;
+      }
+      consolidate_ms = std::chrono::milliseconds{v};
     } else if (arg == "--help" || arg == "-h") {
       usage(argv[0]);
       return 0;
@@ -84,8 +97,14 @@ int main(int argc, char** argv) {
     }
   }
 
+  if (consolidate_ms.count() > 0 && publish_mode != hound::PublishMode::PublishSwap) {
+    std::cerr << "--consolidate-ms requires --publish-swap (or HOUND_PUBLISH_SWAP=1)\n";
+    usage(argv[0]);
+    return 2;
+  }
+
   hound::FuzzyIndex index(hound::make_fuzzy_backend(fuzzy_kind),
-                          hound::make_ranker(ranker_kind), publish_mode);
+                          hound::make_ranker(ranker_kind), publish_mode, consolidate_ms);
   std::cerr << "fuzzy backend: "
             << (fuzzy_kind == hound::FuzzyBackendKind::SymSpell ? "symspell" : "bk")
             << "\n";
@@ -93,6 +112,9 @@ int main(int argc, char** argv) {
   std::cerr << "publish mode: "
             << (publish_mode == hound::PublishMode::PublishSwap ? "publish_swap" : "legacy")
             << "\n";
+  if (publish_mode == hound::PublishMode::PublishSwap) {
+    std::cerr << "consolidate_ms: " << consolidate_ms.count() << "\n";
+  }
   if (!snapshot.empty()) {
     std::ifstream probe(snapshot, std::ios::binary);
     if (probe.good()) {
