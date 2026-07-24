@@ -11,11 +11,12 @@ How to run the suite day-to-day: [`AGENTS.md`](../AGENTS.md),
 
 ---
 
-## Status — where we stopped (2026-07-23)
+## Status — where we stopped (2026-07-24)
 
-**Paused after Phase D + issue #1.** Phases **A–D** complete; SymSpell
-delete-map compaction ([#1](https://github.com/carvalhosauro/hound/issues/1))
-**closed**. Next planned slice: **Phase E1** (mixed-load concurrency probe).
+**Phases A–D + issue #1 + E1 complete.** SymSpell delete-map compaction
+([#1](https://github.com/carvalhosauro/hound/issues/1)) **closed**; mixed-load
+macro probe **E1** baseline recorded. Next planned slice: **Phase E2**
+(double-buffer / publish-swap design spike).
 
 | Milestone | Commits (local `main`) |
 |-----------|------------------------|
@@ -42,6 +43,7 @@ Follow-up test gaps (optional, not blockers):
 | **C1–C2** | Adaptive edit distance by query length + HTTP/API override | Short queries no longer use d=2 by default |
 | **D1–D3** | Pluggable `Ranker` → `TieBreakRanker` opt-in → CLI/HTTP wire | Default `ScoreMerger` + JSON unchanged; `?ranker=` / `--ranker` |
 | **#1** | uint32 postings + tagged single/multi delete values | RSS @20k **~418→226 MB** (−46%); Insert/prepare faster; fuzzy OK; **closed** |
+| **E1** | Mixed-load macro probe (search-only vs write-only vs mixed) | `/search` p99 delta under writes: exact **+644 ms**, typo **+1087 ms** vs search-only; artifact `e1_mixed_20260724T020340Z.txt` |
 | **Baseline** | Human `save_baseline.sh` (SymSpell default, pre-#1) | `baselines/micro_baseline.json` — consider refresh after #1 |
 
 **Accepted tradeoff (documented):** SymSpell ingest/`prepare` still slower and RSS
@@ -54,14 +56,14 @@ there is concrete pain or a planned slice.
 
 | Phase | Theme | Notes |
 |-------|-------|-------|
-| **E** | Double-buffer / non-blocking writers | **Next** — start at **E1** mixed-load probe |
+| **E** | Double-buffer / non-blocking writers | **Next** — **E2** publish/swap spike (E1 baseline done) |
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
 | **#2–#5** | Ranker test hardening (CLI, aliases, macro, concurrency) | Optional; DoD for D already met |
 
 ### Suggested next steps (pick one)
 
-1. **E1** — mixed-load macro probe (search p99 during writes).
+1. **E2** — double-buffer or publish/swap minimal impl; re-run E1 probe + TSan.
 2. **Human** — optional `save_baseline.sh` to lock faster Insert after #1.
 3. **#2–#5** — optional ranker test hardening (or **G1** `fields=id` polish).
 
@@ -427,14 +429,14 @@ Typesense-style lexicographic order (default Typesense
 
 ---
 
-### Phase E — Concurrency beyond `shared_mutex` ← **next**
+### Phase E — Concurrency beyond `shared_mutex` ← **next (E2)**
 
 **Goal:** Writers do not stall readers under mixed load (Sonic-like).
 
-| ID | Delivery | Measure | Done when |
-|----|----------|---------|-----------|
-| **E1** | Macro/mixed-load probe (tmp script OK): R-heavy + occasional upsert | hey / custom: search p99 during writes | Baseline contention numbers recorded |
-| **E2** | Double-buffer or publish/swap design spike (minimal impl) | same probe + TSan | Search p99 under writes improves vs E1; TSan clean; correctness green |
+| ID | Delivery | Measure | Done when | Status |
+|----|----------|---------|-----------|--------|
+| **E1** | Macro/mixed-load probe (tmp script OK): R-heavy + occasional upsert | hey / custom: search p99 during writes | Baseline contention numbers recorded | **Done** (2026-07-24) — exact p99 **+644 ms**, typo **+1087 ms** vs search-only |
+| **E2** | Double-buffer or publish/swap design spike (minimal impl) | same probe + TSan | Search p99 under writes improves vs E1; TSan clean; correctness green | **Next** |
 | **E3** | Background consolidation (Sonic-style) — only if E2 insufficient | write churn + search latency | Changelog shows why E2 was not enough; metrics for consolidate interval |
 
 ---
@@ -469,7 +471,7 @@ Typesense-style lexicographic order (default Typesense
 | **P2** | Adaptive edit distance | **C1–C2** |
 | **P3** | Pluggable `Ranker` | **D1** |
 | **P4** | Tie-break ranker | **D2–D3** |
-| **P5** | Double-buffer / non-blocking writers | **E1–E2** ← next |
+| **P5** | Double-buffer / non-blocking writers | **E2** ← next (E1 done) |
 | **P6** | Background consolidation | **E3** |
 | **P7** | SymSpell compound splitting | **G2** |
 | **P8** | Contiguous layout / ART | **F0–F1** |
@@ -479,6 +481,43 @@ Typesense-style lexicographic order (default Typesense
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-23 — Phase E1 mixed-load concurrency probe
+
+```text
+Hypothesis: Mixed continuous upserts raise /search p99 vs search-only via
+            unique_lock + HttpApi write mutex.
+Primary metric(s):   hey /search p50/p95/p99 (exact + typo), search-only vs mixed
+Secondary metric(s): writes/s write-only and mixed
+Before: search-only (+ write-only) in benchmarks/results/e1_mixed_20260724T020340Z.txt
+After:  mixed in same artifact
+Correctness: N/A (probe only; no index/API change)
+Micro gate:  N/A
+DoD items:   [x] three scenarios  [x] numbers recorded  [x] scripts/tmp gitignored
+Decision:    ship — E1 baseline recorded; next E2
+```
+
+- Commands: `./scripts/tmp/probe_e1_mixed_load.sh` (untracked; local only)
+- Artifact: `benchmarks/results/e1_mixed_20260724T020340Z.txt` (`docs=5000`, `n=2000`, `c=50`, `duration_s=15` per scenario)
+- Metrics:
+
+  | scenario | query | p50 | p95 | p99 | writes/s |
+  |----------|-------|-----|-----|-----|----------|
+  | search-only | exact | 0.3 ms | 1005.2 ms | 1023.2 ms | — |
+  | search-only | typo | 0.3 ms | 1010.6 ms | 1024.1 ms | — |
+  | write-only | — | — | — | — | 870.3 |
+  | mixed | exact | 0.5 ms | 1356.0 ms | 1667.5 ms | 6.5 |
+  | mixed | typo | 0.4 ms | 459.7 ms | 2110.6 ms | 6.5 |
+
+- Contention signal: mixed − search-only p99 (exact / typo) = **+644.3 ms** / **+1086.5 ms**
+- Correctness: N/A
+- Micro gate: N/A
+- Decision: **ship** — unlocks E2 design spike
+- Notes:
+  - Mixed `Size/request` ~14 B vs search-only ~622 B (exact) — after write-only, rotating upserts rewrite texts; mixed search hit-set may be empty while still HTTP 200. Treat p99 delta as lock/scheduling contention signal, not identical query work.
+  - Scenario order is search-only → write-only → mixed on one process (plan-mandated); E2 probes may want search-only vs mixed without intervening write-only, or writer that preserves searchable text.
+  - Mixed typo p95 can be *lower* than search-only while p99 is higher (heavy tail).
+  - No `--snapshot`; hey `-disable-keepalive`; probe stays under `scripts/tmp/`.
 
 ### 2026-07-23 — Close issue #1 (SymSpell delete-map compaction)
 
@@ -906,8 +945,8 @@ Template for later slices:
 
 ## Future decisions
 
-1. **Next on roadmap:** mixed-load writers vs readers (**E1–E2**), or optional
-   `save_baseline.sh` after #1 Insert wins.
+1. **Next on roadmap:** **E2** double-buffer / publish-swap (E1 mixed-load baseline
+   recorded); or optional `save_baseline.sh` after #1 Insert wins.
 2. **SymSpell further compaction** (denser map / incremental deletes): only if RSS
    or write-churn still hurts — file a new issue when starting that slice.
 3. **Ranker test hardening (optional):** [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5).
