@@ -40,6 +40,17 @@ inline int levenshtein(std::string_view a, std::string_view b) {
 // more document ids. Deletes are lazy (tombstones) and skipped on search.
 class BkTree {
  public:
+  BkTree() = default;
+  BkTree(const BkTree& other) : root_(clone_node(other.root_.get())) {}
+  BkTree& operator=(const BkTree& other) {
+    if (this != &other) {
+      root_ = clone_node(other.root_.get());
+    }
+    return *this;
+  }
+  BkTree(BkTree&&) noexcept = default;
+  BkTree& operator=(BkTree&&) noexcept = default;
+
   void insert(std::string key, std::string id) {
     if (!root_) {
       root_ = std::make_unique<Node>(std::move(key));
@@ -138,6 +149,19 @@ class BkTree {
         search_rec(child.get(), query, max_distance, out);
       }
     }
+  }
+
+  static std::unique_ptr<Node> clone_node(const Node* src) {
+    if (!src) {
+      return nullptr;
+    }
+    auto out = std::make_unique<Node>(src->key);
+    out->ids = src->ids;
+    out->deleted = src->deleted;
+    for (const auto& [edge, child] : src->children) {
+      out->children.emplace(edge, clone_node(child.get()));
+    }
+    return out;
   }
 
   std::unique_ptr<Node> root_;

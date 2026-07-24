@@ -55,12 +55,37 @@ class Trie {
     root_ = std::make_unique<Node>();
   }
 
+  Trie(const Trie& other) : root_(clone_node(other.root_.get())) {}
+
+  Trie& operator=(const Trie& other) {
+    if (this != &other) {
+      root_ = clone_node(other.root_.get());
+    }
+    return *this;
+  }
+
+  Trie(Trie&&) noexcept = default;
+  Trie& operator=(Trie&&) noexcept = default;
+
  private:
   struct Node {
     std::unordered_map<char, std::unique_ptr<Node>> children;
     std::unordered_set<std::string> ids;
     bool is_terminal = false;
   };
+
+  static std::unique_ptr<Node> clone_node(const Node* src) {
+    if (!src) {
+      return nullptr;
+    }
+    auto out = std::make_unique<Node>();
+    out->ids = src->ids;
+    out->is_terminal = src->is_terminal;
+    for (const auto& [ch, child] : src->children) {
+      out->children.emplace(ch, clone_node(child.get()));
+    }
+    return out;
+  }
 
   const Node* walk(std::string_view key) const {
     const Node* node = root_.get();

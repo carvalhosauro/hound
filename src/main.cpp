@@ -16,6 +16,7 @@ void usage(const char* argv0) {
       << "Usage: " << argv0
       << " [--host HOST] [--port PORT] [--snapshot PATH] [--load FILE]\n"
       << "       [--fuzzy-backend bk|symspell] [--ranker linear|tie_break]\n"
+      << "       [--publish-swap]\n"
       << "\n"
       << "Hound — fuzzy autocomplete sidecar (HTTP JSON).\n"
       << "  --host            bind address (default 127.0.0.1)\n"
@@ -26,7 +27,9 @@ void usage(const char* argv0) {
       << "                    (overrides HOUND_FUZZY_BACKEND env if set)\n"
       << "  --ranker          ranking: linear (default α blend) or tie_break\n"
       << "                    (overrides HOUND_RANKER env if set; per-query\n"
-      << "                    ?ranker= still overrides for a single search)\n";
+      << "                    ?ranker= still overrides for a single search)\n"
+      << "  --publish-swap    E2: readers use atomic snapshot publish (slower writes);\n"
+      << "                    default is shared_mutex. Also HOUND_PUBLISH_SWAP=1\n";
 }
 
 }  // namespace
@@ -38,6 +41,7 @@ int main(int argc, char** argv) {
   std::string load_path;
   hound::FuzzyBackendKind fuzzy_kind = hound::fuzzy_backend_kind_from_env();
   hound::RankerKind ranker_kind = hound::ranker_kind_from_env();
+  hound::PublishMode publish_mode = hound::publish_mode_from_env();
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -68,6 +72,8 @@ int main(int argc, char** argv) {
         std::cerr << "invalid --ranker: " << value << " (use linear or tie_break)\n";
         return 2;
       }
+    } else if (arg == "--publish-swap") {
+      publish_mode = hound::PublishMode::PublishSwap;
     } else if (arg == "--help" || arg == "-h") {
       usage(argv[0]);
       return 0;
@@ -79,11 +85,14 @@ int main(int argc, char** argv) {
   }
 
   hound::FuzzyIndex index(hound::make_fuzzy_backend(fuzzy_kind),
-                          hound::make_ranker(ranker_kind));
+                          hound::make_ranker(ranker_kind), publish_mode);
   std::cerr << "fuzzy backend: "
             << (fuzzy_kind == hound::FuzzyBackendKind::SymSpell ? "symspell" : "bk")
             << "\n";
   std::cerr << "ranker: " << hound::ranker_kind_name(ranker_kind) << "\n";
+  std::cerr << "publish mode: "
+            << (publish_mode == hound::PublishMode::PublishSwap ? "publish_swap" : "legacy")
+            << "\n";
   if (!snapshot.empty()) {
     std::ifstream probe(snapshot, std::ios::binary);
     if (probe.good()) {

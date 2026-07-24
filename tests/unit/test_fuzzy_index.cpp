@@ -190,3 +190,39 @@ TEST_CASE("FuzzyIndex accepts injected Ranker", "[fuzzy_index][ranker][d1]") {
   REQUIRE(raw->calls == 1);
   REQUIRE_FALSE(hits.empty());
 }
+
+TEST_CASE("publish-swap upsert visible to search", "[fuzzy_index][publish_swap]") {
+  hound::FuzzyIndex idx(hound::make_default_fuzzy_backend(), hound::make_default_ranker(),
+                        hound::PublishMode::PublishSwap);
+  idx.upsert({"1", "Alpha Ridge", 10.0});
+  idx.prepare();
+  auto hits = idx.search("alpha ridge", {.limit = 5});
+  REQUIRE_FALSE(hits.empty());
+  REQUIRE(hits.front().id == "1");
+  REQUIRE(idx.erase("1"));
+  auto after = idx.search("alpha ridge", {.limit = 5});
+  for (const auto& h : after) {
+    REQUIRE(h.id != "1");
+  }
+  REQUIRE(idx.publish_mode() == hound::PublishMode::PublishSwap);
+}
+
+TEST_CASE("publish-swap bulk defer then prepare", "[fuzzy_index][publish_swap]") {
+  hound::FuzzyIndex idx(hound::make_default_fuzzy_backend(), hound::make_default_ranker(),
+                        hound::PublishMode::PublishSwap);
+  idx.begin_bulk();
+  idx.upsert({"1", "Alpha Ridge", 10.0});
+  // Deferred: readers may not see docs until prepare publishes.
+  idx.prepare();
+  auto hits = idx.search("alpha ridge", {.limit = 5});
+  REQUIRE_FALSE(hits.empty());
+  REQUIRE(hits.front().id == "1");
+}
+
+TEST_CASE("legacy mode still default", "[fuzzy_index][publish_swap]") {
+  hound::FuzzyIndex idx;
+  REQUIRE(idx.publish_mode() == hound::PublishMode::Legacy);
+  idx.upsert({"1", "Alpha Ridge", 10.0});
+  auto hits = idx.search("alpha ridge", {.limit = 5});
+  REQUIRE_FALSE(hits.empty());
+}

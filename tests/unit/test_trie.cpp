@@ -22,6 +22,19 @@ TEST_CASE("trie completions by prefix", "[trie]") {
   REQUIRE(comps[1].first == "cat");
 }
 
+TEST_CASE("trie deep copy is independent", "[trie]") {
+  hound::Trie a;
+  a.insert("alpha", "1");
+  a.insert("alpine", "2");
+  hound::Trie b = a;
+  b.erase("alpha", "1");
+  REQUIRE(a.contains("alpha"));
+  REQUIRE_FALSE(b.contains("alpha"));
+  REQUIRE(b.contains("alpine"));
+  auto comps = a.completions("alp", 10);
+  REQUIRE(comps.size() == 2);
+}
+
 TEST_CASE("trie erase removes id", "[trie]") {
   hound::Trie t;
   t.insert("same", "1");

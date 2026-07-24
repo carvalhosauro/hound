@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -34,6 +35,12 @@ class BkFuzzyBackend final : public FuzzyBackend {
   }
 
   void clear() override { tree_.clear(); }
+
+  std::unique_ptr<FuzzyBackend> clone() const override {
+    auto out = std::make_unique<BkFuzzyBackend>();
+    out->tree_ = tree_;
+    return out;
+  }
 
  private:
   BkTree tree_;

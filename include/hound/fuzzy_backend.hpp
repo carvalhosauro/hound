@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,6 +25,9 @@ class FuzzyBackend {
   virtual void clear() = 0;
   // Optional: finish deferred index work after bulk ingest (SymSpell delete map).
   virtual void prepare() {}
+
+  // Deep copy for publish-swap (E2). Independent of `this`.
+  virtual std::unique_ptr<FuzzyBackend> clone() const = 0;
 };
 
 // Runtime / compile selection. Default = SymSpell (B4/B5).

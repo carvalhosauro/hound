@@ -87,6 +87,7 @@ inline std::size_t load_csv(FuzzyIndex& index, const std::string& path) {
   }
 
   std::size_t count = 0;
+  index.begin_bulk();
   while (std::getline(in, line)) {
     if (detail::trim(line).empty()) {
       continue;
@@ -159,6 +160,7 @@ inline std::size_t load_json_array(FuzzyIndex& index, const std::string& path) {
   ++i;
 
   std::size_t count = 0;
+  index.begin_bulk();
   while (true) {
     skip_ws(i);
     if (i < content.size() && content[i] == ']') {

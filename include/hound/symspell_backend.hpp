@@ -129,6 +129,22 @@ class SymSpellFuzzyBackend final : public FuzzyBackend {
   // Build delete index now (no-op if already current). Safe to call after bulk load.
   void prepare() override { ensure_deletes_built(); }
 
+  std::unique_ptr<FuzzyBackend> clone() const override {
+    auto out = std::make_unique<SymSpellFuzzyBackend>(max_dict_edits_);
+    out->dictionary_ = dictionary_;
+    std::lock_guard lock(rebuild_mu_);
+    if (deletes_ready_) {
+      out->deletes_ = deletes_;
+      out->multi_postings_ = multi_postings_;
+      out->words_by_id_ = words_by_id_;
+      out->word_to_id_ = word_to_id_;
+      out->deletes_ready_ = true;
+    } else {
+      out->deletes_ready_ = false;
+    }
+    return out;
+  }
+
   int max_dictionary_edit_distance() const { return max_dict_edits_; }
 
  private:

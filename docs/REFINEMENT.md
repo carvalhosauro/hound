@@ -13,15 +13,16 @@ How to run the suite day-to-day: [`AGENTS.md`](../AGENTS.md),
 
 ## Status — where we stopped (2026-07-24)
 
-**Phases A–D + issue #1 + E1 complete.** SymSpell delete-map compaction
-([#1](https://github.com/carvalhosauro/hound/issues/1)) **closed**; mixed-load
-macro probe **E1** baseline recorded. Next planned slice: **Phase E2**
-(double-buffer / publish-swap design spike).
+**Phases A–D + issue #1 + E1–E2 complete.** Publish-swap is opt-in
+(`--publish-swap` / `HOUND_PUBLISH_SWAP=1`); default remains `shared_mutex`.
+Next planned slice: **E3** only if write churn under publish-swap is too costly,
+or product work (**H0** / polish).
 
 | Milestone | Commits (local `main`) |
 |-----------|------------------------|
 | **D1–D3** | `515569e` Ranker+TieBreak · `65e8a46` CLI/HTTP · `9e0a490`/`f270991` docs |
 | **#1** | `e669abd` uint32 postings · `7e35c17` tagged values · closed on GitHub |
+| **E1–E2** | probe baseline + publish-swap spike (see Phase 2 changelog) |
 
 SymSpell @20k RSS ~**226 MB** (was ~418 MB before #1). Optional micro baseline
 refresh (`save_baseline.sh`) still a **human** decision — Insert is now much
@@ -44,6 +45,7 @@ Follow-up test gaps (optional, not blockers):
 | **D1–D3** | Pluggable `Ranker` → `TieBreakRanker` opt-in → CLI/HTTP wire | Default `ScoreMerger` + JSON unchanged; `?ranker=` / `--ranker` |
 | **#1** | uint32 postings + tagged single/multi delete values | RSS @20k **~418→226 MB** (−46%); Insert/prepare faster; fuzzy OK; **closed** |
 | **E1** | Mixed-load macro probe (search-only vs write-only vs mixed) | `/search` p99 delta under writes: exact **+644 ms**, typo **+1087 ms** vs search-only; artifact `e1_mixed_20260724T020340Z.txt` |
+| **E2** | Opt-in publish-swap (`IndexState` + atomic publish) | Mixed p99 vs same-probe legacy: exact **−122 ms**, typo **−94 ms**; writes/s **16.5→3.8**; TSan clean; default unchanged |
 | **Baseline** | Human `save_baseline.sh` (SymSpell default, pre-#1) | `baselines/micro_baseline.json` — consider refresh after #1 |
 
 **Accepted tradeoff (documented):** SymSpell ingest/`prepare` still slower and RSS
@@ -56,7 +58,7 @@ there is concrete pain or a planned slice.
 
 | Phase | Theme | Notes |
 |-------|-------|-------|
-| **E** | Double-buffer / non-blocking writers | **Next (perf)** — **E2** publish/swap spike (E1 baseline done) |
+| **E3** | Background consolidation | Only if publish-swap write cost still hurts under product load |
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
 | **H** | Generic attrs + multi-index | Product direction (filters / collections); see § Phase H |
@@ -64,11 +66,10 @@ there is concrete pain or a planned slice.
 
 ### Suggested next steps (pick one)
 
-1. **E2** — double-buffer or publish/swap minimal impl; re-run E1 probe + TSan.
+1. **E3** — batched / background publish if write-heavy workloads need it (E2 writes/s ~3.8).
 2. **Human** — optional `save_baseline.sh` to lock faster Insert after #1.
 3. **#2–#5** — optional ranker test hardening (or **G1** `fields=id` polish).
-4. **H0** — design spike only: attrs + multi-index API sketch (no impl until E2
-   lands or a consumer POC needs filters in-process).
+4. **H0** — design spike only: attrs + multi-index API sketch (no impl until needed).
 
 Do not start ART/layout (**F**) without a new profile saying trie/layout is the
 bottleneck (search CPU already moved off BK/Lev).
@@ -432,15 +433,15 @@ Typesense-style lexicographic order (default Typesense
 
 ---
 
-### Phase E — Concurrency beyond `shared_mutex` ← **next (E2)**
+### Phase E — Concurrency beyond `shared_mutex`
 
 **Goal:** Writers do not stall readers under mixed load (Sonic-like).
 
 | ID | Delivery | Measure | Done when | Status |
 |----|----------|---------|-----------|--------|
 | **E1** | Macro/mixed-load probe (tmp script OK): R-heavy + occasional upsert | hey / custom: search p99 during writes | Baseline contention numbers recorded | **Done** (2026-07-24) — exact p99 **+644 ms**, typo **+1087 ms** vs search-only |
-| **E2** | Double-buffer or publish/swap design spike (minimal impl) | same probe + TSan | Search p99 under writes improves vs E1; TSan clean; correctness green | **Next** |
-| **E3** | Background consolidation (Sonic-style) — only if E2 insufficient | write churn + search latency | Changelog shows why E2 was not enough; metrics for consolidate interval |
+| **E2** | Double-buffer or publish/swap design spike (minimal impl) | same probe + TSan | Search p99 under writes improves vs E1; TSan clean; correctness green | **Done** (2026-07-24) — opt-in; mixed p99 −122/−94 ms vs legacy probe; writes/s 16.5→3.8 |
+| **E3** | Background consolidation (Sonic-style) — only if E2 insufficient | write churn + search latency | Changelog shows why E2 was not enough; metrics for consolidate interval | **Optional next** if write cost dominates |
 
 ---
 
@@ -484,6 +485,38 @@ Typesense-style lexicographic order (default Typesense
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-24 — Phase E2 publish-swap concurrency spike
+
+```text
+Hypothesis: Opt-in publish-swap (copy→mutate→atomic publish) cuts mixed /search
+            p99 vs legacy shared_mutex by removing unique_lock from readers.
+Primary metric(s):   hey mixed /search p99 exact+typo (legacy vs --publish-swap)
+Secondary metric(s): mixed writes/s; TSan; correctness; flag-off micro gate
+Before: e2_mixed_legacy_20260724T132213Z.txt
+After:  e2_mixed_swap_20260724T132456Z.txt
+Correctness: ./scripts/run_correctness.sh — pass (incl. TSan publish-swap)
+Micro gate:  flag-off vs baseline — pass
+DoD items:   [x] flag off default  [x] flag on path  [x] probe  [x] TSan
+Decision:    ship — opt-in only; do not flip default; E3 if write churn hurts
+```
+
+- Surfaces: `--publish-swap`, `HOUND_PUBLISH_SWAP=1`; `FuzzyBackend::clone()`,
+  Trie/BkTree deep copy; `begin_bulk()` defers publish for CSV/JSON load;
+  prepare-before-publish so readers never rebuild SymSpell deletes.
+- Metrics (adjusted probe: search-only → mixed, writer `--exclude 1`):
+
+  | scenario | query | legacy p99 | swap p99 | Δ |
+  |----------|-------|------------|----------|---|
+  | mixed | exact | 1178 ms | 1056 ms | **−122 ms** |
+  | mixed | typo | 1149 ms | 1055 ms | **−94 ms** |
+  | mixed | writes/s | 16.5 | 3.8 | −77% (prepare+clone) |
+
+- Size/request stayed ~622 B (query doc preserved — unlike E1 empty-hit caveat).
+- hey still shows ~1 s p99 floor (`-disable-keepalive`); treat deltas as coarse.
+- Correctness: pass; micro flag-off: pass.
+- Decision: **ship** opt-in; keep default `shared_mutex`; consider **E3** if
+  product write rate needs >~4 upserts/s under concurrent search.
 
 ### 2026-07-23 — Phase E1 mixed-load concurrency probe
 

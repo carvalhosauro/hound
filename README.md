@@ -147,7 +147,12 @@ No auth in the MVP — bind to a trusted network.
 ```bash
 ./build/hound --fuzzy-backend bk --load examples/sample.csv --port 8080
 ./build/hound --ranker tie_break --load examples/sample.csv --port 8080
+./build/hound --publish-swap --load examples/sample.csv --port 8080
 ```
+
+**Concurrency:** default is `shared_mutex` (concurrent readers, exclusive writers).
+Opt-in `--publish-swap` / `HOUND_PUBLISH_SWAP=1` publishes an atomic snapshot so
+readers never wait on writers (E2); upserts deep-copy state and are slower.
 
 **Rankers:** `linear` (default) or `tie_break`. Response shape stays
 `id`, `score`, `text_relevance`, `external_score`.

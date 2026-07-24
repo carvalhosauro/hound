@@ -134,3 +134,25 @@ TEST_CASE("FuzzyIndex with SymSpell backend finds golden typos", "[symspell][b2]
   }
   REQUIRE(found);
 }
+
+TEST_CASE("symspell clone is independent", "[symspell][clone]") {
+  auto a = std::make_unique<hound::SymSpellFuzzyBackend>();
+  a->insert("alpha", "1");
+  a->prepare();
+  auto b = a->clone();
+  REQUIRE(b != nullptr);
+  b->erase("alpha", "1");
+  auto ha = a->search("alpha", 0);
+  REQUIRE_FALSE(ha.empty());
+  auto hb = b->search("alpha", 0);
+  REQUIRE(hb.empty());
+}
+
+TEST_CASE("bk clone is independent", "[bk][clone]") {
+  auto a = std::make_unique<hound::BkFuzzyBackend>();
+  a->insert("alpha", "1");
+  auto b = a->clone();
+  b->erase("alpha", "1");
+  REQUIRE_FALSE(a->search("alpha", 0).empty());
+  REQUIRE(b->search("alpha", 0).empty());
+}
