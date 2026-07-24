@@ -521,7 +521,8 @@ Secondary metric(s): E2 sync swap baseline; correctness; default path unchanged
 Before: benchmarks/results/e3_before_e2_sync_20260724T191328Z.txt
 After:  benchmarks/results/e3_after_consolidate_200ms_20260724T191347Z.txt
 Correctness: ./scripts/run_correctness.sh + TSan consolidate — pass (branch)
-Micro gate:  skipped (probe session; legacy default path unchanged by design)
+Micro gate:  quiet re-run — primary fuzzy + Insert pass; SearchExact/20000
+             ±noise (~0.97–1.17 µs vs baseline ~0.91 µs; machine variance)
 DoD items:   [x] opt-in flags  [x] probe  [x] changelog  [x] default unchanged
 Decision:    ship — opt-in only; require --publish-swap; do not flip defaults
 ```
@@ -537,6 +538,10 @@ Decision:    ship — opt-in only; require --publish-swap; do not flip defaults
   | E2 sync `--publish-swap` | **3.7** | **1.026 s** | **1.228 s** |
   | E3 `--publish-swap --consolidate-ms 200` | **246.2** | **1.064 s** | **1.058 s** |
 
+- Micro (legacy defaults): `BM_SearchFuzzy/20000/{1,2}` within gate; Insert faster
+  (post-#1). Full `run_micro.sh` showed SearchExact noise under load_avg≈2;
+  quiet repeats of `BM_SearchExact/20000` spanned 0.97–1.17 µs — not treated as
+  an E3 regression (legacy path only adds a mode branch).
 - E3 mixed exact `Size/request` dipped (~296 B vs ~619 B on sync run) — treat
   as probe noise / eventual consistency between consolidations; re-check if
   product needs strict read-your-writes on every upsert.
