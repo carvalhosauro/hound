@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <optional>
 #include <shared_mutex>
 #include <string>
@@ -49,6 +52,19 @@ inline PublishMode publish_mode_from_env() {
   return PublishMode::Legacy;
 }
 
+inline std::chrono::milliseconds consolidate_ms_from_env() {
+  const char* raw = std::getenv("HOUND_CONSOLIDATE_MS");
+  if (raw == nullptr || raw[0] == '\0') {
+    return std::chrono::milliseconds{0};
+  }
+  char* end = nullptr;
+  const unsigned long v = std::strtoul(raw, &end, 10);
+  if (end == raw || (end != nullptr && *end != '\0')) {
+    return std::chrono::milliseconds{0};
+  }
+  return std::chrono::milliseconds{v};
+}
+
 struct IndexState {
   std::unordered_map<std::string, Document> docs;
   Trie trie;
@@ -90,8 +106,13 @@ class FuzzyIndex {
  public:
   explicit FuzzyIndex(std::unique_ptr<FuzzyBackend> fuzzy = make_default_fuzzy_backend(),
                       std::unique_ptr<Ranker> ranker = make_default_ranker(),
-                      PublishMode mode = PublishMode::Legacy)
-      : mode_(mode), ranker_(std::move(ranker)), state_(std::move(fuzzy)) {
+                      PublishMode mode = PublishMode::Legacy,
+                      std::chrono::milliseconds consolidate_ms = std::chrono::milliseconds{0})
+      : mode_(mode),
+        consolidate_ms_(mode == PublishMode::PublishSwap ? consolidate_ms
+                                                         : std::chrono::milliseconds{0}),
+        ranker_(std::move(ranker)),
+        state_(std::move(fuzzy)) {
     if (!ranker_) {
       ranker_ = make_default_ranker();
     }
@@ -117,9 +138,13 @@ class FuzzyIndex {
       std::lock_guard wlock(writer_mu_);
       apply_upsert(draft_, std::move(doc), normalized);
       if (!defer_publish_) {
-        // Prepare before publish so readers never rebuild SymSpell deletes.
-        draft_.fuzzy->prepare();
-        published_.store(std::make_shared<const IndexState>(draft_), std::memory_order_release);
+        if (deferred_publish_active()) {
+          dirty_ = true;
+        } else {
+          publish_draft_unlocked();
+        }
+      } else if (deferred_publish_active()) {
+        dirty_ = true;
       }
       return;
     }
@@ -134,8 +159,13 @@ class FuzzyIndex {
         return false;
       }
       if (!defer_publish_) {
-        draft_.fuzzy->prepare();
-        published_.store(std::make_shared<const IndexState>(draft_), std::memory_order_release);
+        if (deferred_publish_active()) {
+          dirty_ = true;
+        } else {
+          publish_draft_unlocked();
+        }
+      } else if (deferred_publish_active()) {
+        dirty_ = true;
       }
       return true;
     }
@@ -174,7 +204,7 @@ class FuzzyIndex {
       draft_.docs.clear();
       draft_.trie.clear();
       draft_.fuzzy->clear();
-      published_.store(std::make_shared<const IndexState>(draft_), std::memory_order_release);
+      publish_draft_unlocked();
       return;
     }
     std::unique_lock lock(mu_);
@@ -187,8 +217,7 @@ class FuzzyIndex {
   void prepare() {
     if (mode_ == PublishMode::PublishSwap) {
       std::lock_guard wlock(writer_mu_);
-      draft_.fuzzy->prepare();
-      published_.store(std::make_shared<const IndexState>(draft_), std::memory_order_release);
+      publish_draft_unlocked();
       defer_publish_ = false;
       return;
     }
@@ -294,7 +323,19 @@ class FuzzyIndex {
 
   PublishMode publish_mode() const { return mode_; }
 
+  std::chrono::milliseconds consolidate_ms() const { return consolidate_ms_; }
+
  private:
+  void publish_draft_unlocked() {
+    draft_.fuzzy->prepare();
+    published_.store(std::make_shared<const IndexState>(draft_), std::memory_order_release);
+    dirty_ = false;
+  }
+
+  bool deferred_publish_active() const {
+    return mode_ == PublishMode::PublishSwap && consolidate_ms_.count() > 0;
+  }
+
   static void apply_upsert(IndexState& st, Document doc, const std::string& normalized) {
     auto it = st.docs.find(doc.id);
     if (it != st.docs.end()) {
@@ -322,6 +363,8 @@ class FuzzyIndex {
   }
 
   PublishMode mode_;
+  std::chrono::milliseconds consolidate_ms_{0};
+  bool dirty_ = false;
   std::unique_ptr<Ranker> ranker_;
 
   // Legacy path
