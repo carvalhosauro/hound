@@ -1,88 +1,104 @@
 # Hound
 
-Lightweight **C++ sidecar** for fuzzy autocomplete + external-score merge.
+**Search that sits beside your database — not on top of it.**
 
-Hound is **not** a replacement for Elasticsearch/Typesense. It sits beside a
-relational database (MySQL/Postgres remain the source of truth), indexes
-generic documents `{ id, text, external_score }`, and returns ranked `id`s for
-typo-tolerant autocomplete queries.
+Tired of `LIKE '%burger%'` and a random “score” column? Hound is a tiny C++
+sidecar: typo-tolerant autocomplete in, ranked `id`s out. Your Postgres/MySQL
+stays the source of truth. Your app hydrates the rest.
 
-Domain-agnostic by design: no business schemas, no real-world private data.
-Example datasets are synthetic.
+> Elasticsearch is the Kubernetes of search.  
+> Hound is the Portainer — the door you open when you need something better
+> than SQL, without standing up a search platform.
 
-## Features (MVP)
+MIT. One binary. Generic `{ id, text, external_score }` — no business schemas,
+no private data in examples (synthetic only).
 
-- In-memory **Trie** (prefix) + pluggable fuzzy dictionary (**SymSpell** default;
-  **BK-tree** oracle/escape hatch)
-- Adaptive max edit distance by query length (optional fixed override)
-- Configurable merge: `final = alpha * text_relevance + (1-alpha) * norm(external_score)`
-  (default); optional Typesense-style `tie_break` ranker (`text` → `external` → `id`)
-- HTTP JSON API
-- Bulk load from generic CSV/JSON
-- Optional binary snapshot across restarts
-- Synthetic benchmarks (latency, Recall@k, ingest, RSS)
+---
 
-## Build
+## The problem it solves
 
-Requirements: CMake ≥ 3.20, a C++20 compiler, Git (FetchContent pulls Catch2,
-cpp-httplib, nlohmann/json).
+| Today | With Hound |
+|-------|------------|
+| `LIKE '%text%'` (slow, no typos) | Prefix + fuzzy (SymSpell by default) |
+| “Score” = random × knob in the DB | **Your** real score → `external_score` |
+| Dumping full rows into a second store | Index thin docs → **hydrate from the DB** |
+
+You keep thinking in SQL. Hound only answers: *which ids match this query, and
+how do they rank when we merge text relevance with the score you already
+computed?*
+
+```text
+BD (truth) ──sync──► Hound { id, text, external_score }
+App ──GET /search──► ranked ids ──hydrate──► BD ──► UI
+```
+
+---
+
+## 60-second start
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-ctest --test-dir build --output-on-failure
+
+./build/hound --load examples/sample.csv --port 8080
 ```
-
-Binaries:
-
-| Target | Purpose |
-|--------|---------|
-| `build/hound` | HTTP server |
-| `build/hound_bulk_load` | CLI bulk ingest → optional snapshot |
-| `build/hound_tests` | unit + golden + integration tests |
-| `build/hound_bench` | legacy synthetic summary bench |
-| `build-bench/hound_bench_micro` | Google Benchmark micro suite (JSON) |
-
-## Run
 
 ```bash
-# empty index (SymSpell fuzzy backend by default)
-./build/hound --host 127.0.0.1 --port 8080
-
-# bulk load + optional snapshot
-./build/hound --load examples/sample.csv --snapshot /tmp/hound.snap --port 8080
-
-# force BK-tree fuzzy backend (lower RAM / faster ingest; slower fuzzy search)
-./build/hound --fuzzy-backend bk --load examples/sample.csv --port 8080
-# equivalent: HOUND_FUZZY_BACKEND=bk ./build/hound ...
-
-# optional Typesense-style tie-break ranking (process default; per-query override below)
-./build/hound --ranker tie_break --load examples/sample.csv --port 8080
-# equivalent: HOUND_RANKER=tie_break ./build/hound ...
+curl -s 'localhost:8080/search?q=ada%20ash&limit=5&alpha=0.7'
 ```
 
-### Fuzzy backends — which to use
+Requirements: CMake ≥ 3.20, C++20 compiler, Git (FetchContent pulls Catch2,
+cpp-httplib, nlohmann/json).
 
-| Backend | Select | Best when | Tradeoff (≈20k synthetic docs) |
-|---------|--------|-----------|--------------------------------|
-| **SymSpell** (default) | omit flag, or `--fuzzy-backend symspell` | Bulk load once (or rare writes), then many autocomplete queries | Fuzzy search ~**µs**; ingest improved after #1; RSS ~**226 MB** vs ~**30 MB** BK @ 20k (was ~418 MB) |
-| **BK-tree** | `--fuzzy-backend bk` or `HOUND_FUZZY_BACKEND=bk` | Tight RAM, frequent upserts/rebuilds, or BK as test oracle | Ingest/RSS cheaper; fuzzy search ~**ms** at 20k (Levenshtein-heavy) |
+| Binary | Role |
+|--------|------|
+| `build/hound` | HTTP sidecar |
+| `build/hound_bulk_load` | CLI bulk ingest → optional snapshot |
+| `build/hound_tests` | unit + golden + integration |
+| `build/hound_bench` | legacy summary bench |
+| `build-bench/hound_bench_micro` | Google Benchmark micro suite |
 
-Compile-time default override: `-DHOUND_DEFAULT_FUZZY_BACKEND_BK`.
+```bash
+ctest --test-dir build --output-on-failure
+# or
+./scripts/run_correctness.sh
+```
 
-### Rankers — which to use
+---
 
-| Ranker | Select | Behavior |
-|--------|--------|----------|
-| **linear** (default) | omit, `--ranker linear`, or `?ranker=linear` | `α·text + (1-α)·norm(external)`; ties by `id` |
-| **tie_break** | `--ranker tie_break`, `HOUND_RANKER=tie_break`, or `?ranker=tie_break` | `text_relevance` desc → `external_score` desc → `id` asc (`alpha` ignored) |
+## Mental model
 
-Per-query `?ranker=` overrides the process default for that search only. Response
-JSON shape is unchanged (`id`, `score`, `text_relevance`, `external_score`).
+Three fields. That’s the product.
 
-Detail and roadmap: [docs/REFINEMENT.md](docs/REFINEMENT.md).
+```json
+{ "id": "1", "text": "Ada Ash", "external_score": 10.5 }
+```
 
-### HTTP API
+| Field | Who owns it | Why it exists |
+|-------|-------------|----------------|
+| `text` | You (export from the DB) | What the user types against |
+| `external_score` | **You** (job / SQL / app) | Quality, volume, rating — business truth |
+| `id` | Your primary key | So the app can hydrate |
+
+Ranking (default):
+
+```text
+final = α · text_relevance + (1 − α) · normalize(external_score)
+```
+
+Optional `tie_break` ranker: text → external → id (Typesense-style order,
+`α` ignored). Per-query: `?ranker=tie_break`.
+
+**Not in the index (on purpose):** distance, personalization, “open now”
+business rules. Over-fetch ids, filter/rerank in the app or DB — same pattern
+as Portainer: keep the familiar control plane.
+
+Roadmap for generic filter attrs + multi-index: [docs/REFINEMENT.md](docs/REFINEMENT.md)
+(Phase H).
+
+---
+
+## HTTP API
 
 ```bash
 curl -s localhost:8080/health
@@ -92,23 +108,17 @@ curl -s -X POST localhost:8080/index \
   -d '{"id":"1","text":"Ada Ash","external_score":10}'
 
 curl -s 'localhost:8080/search?q=ada%20ash&limit=5&alpha=0.7'
-# optional fixed edit distance (omit for adaptive length→distance):
 # curl -s 'localhost:8080/search?q=ada&max_edit_distance=1'
-# optional ranker override (omit for process default / linear):
 # curl -s 'localhost:8080/search?q=ada%20ash&ranker=tie_break'
 
 curl -s -X DELETE localhost:8080/index/1
-```
 
-Bulk:
-
-```bash
 curl -s -X POST localhost:8080/index/bulk \
   -H 'content-type: application/json' \
   -d '[{"id":"1","text":"Ada Ash","external_score":10},{"id":"2","text":"Blake Brook","external_score":3}]'
 ```
 
-CSV header for `--load` / `hound_bulk_load`:
+CSV for `--load` / `hound_bulk_load`:
 
 ```csv
 id,text,external_score
@@ -116,54 +126,81 @@ id,text,external_score
 2,Blake Brook,3.0
 ```
 
-**Security note:** no authentication in the MVP — bind to a trusted network.
+```bash
+# snapshot across restarts
+./build/hound --load examples/sample.csv --snapshot /tmp/hound.snap --port 8080
+```
+
+No auth in the MVP — bind to a trusted network.
+
+---
+
+## Fuzzy & rankers (knobs that matter)
+
+**Fuzzy backends**
+
+| Backend | Select | Best when | ≈20k synthetic docs |
+|---------|--------|-----------|---------------------|
+| **SymSpell** (default) | omit / `--fuzzy-backend symspell` | Bulk once, then many searches | Fuzzy ~µs; RSS ~226 MB |
+| **BK-tree** | `--fuzzy-backend bk` or `HOUND_FUZZY_BACKEND=bk` | Tight RAM, write churn, oracle tests | Fuzzy ~ms; RSS ~30 MB |
+
+```bash
+./build/hound --fuzzy-backend bk --load examples/sample.csv --port 8080
+./build/hound --ranker tie_break --load examples/sample.csv --port 8080
+```
+
+**Rankers:** `linear` (default) or `tie_break`. Response shape stays
+`id`, `score`, `text_relevance`, `external_score`.
+
+---
+
+## Who this is for
+
+- Indie hackers and small teams drowning in `LIKE` + bad ranking
+- SaaS apps that already have a DB and refuse a second source of truth
+- Anyone who wants typo-tolerant search **and** to keep business score in-house
+
+## Who should look elsewhere
+
+- You need facets, analytics, multi-region clusters → Elasticsearch / OpenSearch
+- You want a full document search product with filters day-one → Meilisearch / Typesense
+- You only need suggest tokens → Sonic
+
+Hound’s bet is narrower on purpose: **candidate ids + first-class external score
+beside the RDBMS.**
+
+---
 
 ## Benchmarks
 
 ```bash
-# Legacy one-shot summary (p50/p95/p99 + recall@10)
-./build/hound_bench
-
-# Micro suite (Google Benchmark → JSON)
 ./scripts/run_micro.sh
-./scripts/save_baseline.sh benchmarks/results/micro_<timestamp>.json
-
-# HTTP macro suite (hey — includes network/JSON overhead)
-# Requires: go install github.com/rakyll/hey@latest
-./scripts/run_macro.sh
-```
-
-Micro reports insert, exact search, fuzzy (edit distance 1–3), and score-merge
-latency across index sizes 1k / 5k / 20k (synthetic names, seed 42).
-
-Macro drives concurrent HTTP clients against a live sidecar and writes
-`benchmarks/results/macro_<timestamp>.txt`. See
-[benchmarks/macro/README.md](benchmarks/macro/README.md).
-
-### Compare & profile
-
-```bash
 ./scripts/compare_bench.py baselines/micro_baseline.json benchmarks/results/micro_<ts>.json
-./benchmarks/profiling/perf_stat.sh --benchmark_filter=BM_SearchFuzzy/20000/2
+./scripts/run_macro.sh   # needs: go install github.com/rakyll/hey@latest
 ```
 
-See [AGENTS.md](AGENTS.md) (when/how to run suites) and
+Micro: insert / exact / fuzzy / score-merge at 1k · 5k · 20k (synthetic, seed 42).  
+Macro: live HTTP + JSON. Don’t compare µs to hey latencies.
+
+When to run what: [AGENTS.md](AGENTS.md). Profiling:
 [benchmarks/profiling/README.md](benchmarks/profiling/README.md).
 
-## Project layout
+---
 
-See [docs/PLANO.md](docs/PLANO.md) for the phased design,
-[docs/REFINEMENT.md](docs/REFINEMENT.md) for post-MVP priorities, and
-[AGENTS.md](AGENTS.md) for agent/contributor workflow (tests & benches).
+## Docs & layout
 
-```bash
-./scripts/run_correctness.sh          # unit + golden + integration + TSan
-HOUND_RUN_TSAN=0 ./scripts/run_correctness.sh   # skip TSan
-```
+| Doc | What |
+|-----|------|
+| [docs/PLANO.md](docs/PLANO.md) | Design & phases |
+| [docs/REFINEMENT.md](docs/REFINEMENT.md) | Post-MVP (perf + Phase H attrs) |
+| [AGENTS.md](AGENTS.md) | Contributor workflow |
 
-Core headers live under `include/hound/` and have no HTTP/CSV dependencies
-except the API/ingest layers.
+Core under `include/hound/` stays free of HTTP/CSV. API and ingest sit outside.
+
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — [LICENSE](LICENSE).
+
+Star it if you’re escaping `LIKE`. PRs welcome if they keep the sidecar thin.
