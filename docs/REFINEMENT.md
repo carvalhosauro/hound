@@ -56,9 +56,10 @@ there is concrete pain or a planned slice.
 
 | Phase | Theme | Notes |
 |-------|-------|-------|
-| **E** | Double-buffer / non-blocking writers | **Next** — **E2** publish/swap spike (E1 baseline done) |
+| **E** | Double-buffer / non-blocking writers | **Next (perf)** — **E2** publish/swap spike (E1 baseline done) |
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
+| **H** | Generic attrs + multi-index | Product direction (filters / collections); see § Phase H |
 | **#2–#5** | Ranker test hardening (CLI, aliases, macro, concurrency) | Optional; DoD for D already met |
 
 ### Suggested next steps (pick one)
@@ -66,6 +67,8 @@ there is concrete pain or a planned slice.
 1. **E2** — double-buffer or publish/swap minimal impl; re-run E1 probe + TSan.
 2. **Human** — optional `save_baseline.sh` to lock faster Insert after #1.
 3. **#2–#5** — optional ranker test hardening (or **G1** `fields=id` polish).
+4. **H0** — design spike only: attrs + multi-index API sketch (no impl until E2
+   lands or a consumer POC needs filters in-process).
 
 Do not start ART/layout (**F**) without a new profile saying trie/layout is the
 bottleneck (search CPU already moved off BK/Lev).
@@ -943,13 +946,89 @@ Template for later slices:
 
 ---
 
+## Phase H — Generic attrs + multi-index (product direction)
+
+**Status:** not started (design notes only). **Orthogonal to E/F/G** (perf /
+layout). Keep core domain-agnostic: no business schemas (food, stores, etc.).
+
+Hound stays a **sidecar**: RDBMS is source of truth; search returns ranked
+`id`s; the app **hydrates** full records. Global quality lives in
+`external_score` (computed by the app/job). Request-time signals (distance,
+personalization) stay in the app as **rerank** after over-fetch — not in the
+static index.
+
+### H0 — Problem framing (locked intent)
+
+| Concern | Mechanism | Not |
+|---------|-----------|-----|
+| Typo / text match | `text` + fuzzy backend | Business field names in core |
+| “Good” entities first | `external_score` from app | Random or per-user score in index |
+| Partition / eligibility | **attrs** (indexed metadata filters) | Encoding city into score |
+| Distinct corpora | **multi-index** (collections) | One blob of unrelated verticals |
+| Sync fan-in | External bus (Kafka/Rabbit) → HTTP upsert | Hound speaking Kafka |
+
+**City / region edge case:** large markets dominate absolute volume scores.
+Fix with `filter(attrs)` (e.g. `city_id`) so ranking runs *inside* the
+eligible set — not by weakening global score. Optional later: per-region
+`external_score` computed in the app before sync.
+
+**Verticals (restaurants vs products vs neighborhoods):** prefer separate
+**indexes/collections** early if schemas and churn diverge; a single
+`vertical` attr is OK for a thin POC. Message-bus *topics* are an ingest
+concern outside Hound; they map cleanly onto one consumer → one index.
+
+### H1 — Document + query sketch (API target)
+
+Illustrative only — wire format may change when implementation starts:
+
+```json
+{
+  "id": "42",
+  "text": "synthetic item alpha",
+  "external_score": 0.81,
+  "attrs": {
+    "city_id": 17,
+    "open": 1
+  }
+}
+```
+
+```http
+GET /indexes/{name}/search?q=alfa&attrs.city_id=17&attrs.open=1&limit=50
+```
+
+POC without H1 in Hound: over-fetch from today’s `/search`, then
+`WHERE id IN (…) AND city_id=? AND …` in the RDBMS (filter-after).
+
+### H2 — Acceptance (when implementing)
+
+- [ ] Attr equality filters are generic (`string`/`int` keys); no domain types
+- [ ] Multi-index: isolate docs by index name; search does not leak across
+- [ ] Default path still supports `{id,text,external_score}` with empty attrs
+- [ ] Synthetic examples + tests only; README documents hydrate-in-app pattern
+- [ ] Correctness suite green; micro gate for search path if hot path changes
+
+### Suggested slice order
+
+1. **H0** (this section) — done as docs.
+2. Filter-after POC in a consumer app (no Hound change).
+3. **H1** design spike → issue when a real consumer needs in-index filters.
+4. Implement attrs equality → optional multi-index → optional numeric ranges.
+
+Do **not** block **E2** on H. Prefer shipping publish-swap before growing the
+document model, unless a POC explicitly needs in-process attrs.
+
+---
+
 ## Future decisions
 
-1. **Next on roadmap:** **E2** double-buffer / publish-swap (E1 mixed-load baseline
-   recorded); or optional `save_baseline.sh` after #1 Insert wins.
-2. **SymSpell further compaction** (denser map / incremental deletes): only if RSS
+1. **Next on roadmap (perf):** **E2** double-buffer / publish-swap (E1 mixed-load
+   baseline recorded); or optional `save_baseline.sh` after #1 Insert wins.
+2. **Product direction:** **Phase H** (attrs + multi-index) when a consumer
+   needs in-index filters; until then filter-after in the app is enough.
+3. **SymSpell further compaction** (denser map / incremental deletes): only if RSS
    or write-churn still hurts — file a new issue when starting that slice.
-3. **Ranker test hardening (optional):** [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5).
-4. Revisit ART / contiguous layout only after a post-SymSpell profile (**F0→F1**).
-5. On-disk compressed postings if snapshot rebuild/RSS hurts (**F2**).
-6. Optional `fields=id` projection without removing score fields (**G1**).
+4. **Ranker test hardening (optional):** [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5).
+5. Revisit ART / contiguous layout only after a post-SymSpell profile (**F0→F1**).
+6. On-disk compressed postings if snapshot rebuild/RSS hurts (**F2**).
+7. Optional `fields=id` projection without removing score fields (**G1**).

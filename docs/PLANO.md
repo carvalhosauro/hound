@@ -118,6 +118,7 @@ No auth in the MVP (trusted network).
 
 - Automatic MySQL/Postgres sync
 - Auth, multi-tenant, sharding
+- Indexed filter attrs / multi-index collections
 - Advanced Unicode (stemming, synonyms)
 - Replacing Elasticsearch/Typesense
 - Any real business schema or data
@@ -133,7 +134,8 @@ No auth in the MVP (trusted network).
 
 See [REFINEMENT.md](REFINEMENT.md): measured baseline, learning map
 (Sonic / Typesense / Xapian / SymSpell / CppCon), effort×gain prioritization,
-and Phase-2 changelog.
+Phase-2 changelog, and **product direction** (generic attrs, multi-index,
+hydrate-in-app — Phase H).
 
 ## Tests and benchmarks
 
