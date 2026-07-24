@@ -11,6 +11,8 @@
 /benchmarks/results/*.data
 /benchmarks/results/*.folded
 /benchmarks/results/*.svg
+# Local untracked probes (Phase E1, issue #1 scratch, etc.)
+/scripts/tmp/
 compile_commands.json
 *.o
 *.a
