@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <thread>
 
 #include "hound/fuzzy_index.hpp"
 
@@ -265,4 +266,28 @@ TEST_CASE("e3 consolidate_ms zero keeps sync publish-swap", "[fuzzy_index][e3]")
   auto hits = idx.search("alpha ridge", {.limit = 5});
   REQUIRE_FALSE(hits.empty());
   REQUIRE(hits.front().id == "1");
+}
+
+TEST_CASE("e3 worker publishes dirty draft after interval", "[fuzzy_index][e3]") {
+  using namespace std::chrono_literals;
+  hound::FuzzyIndex idx(hound::make_default_fuzzy_backend(), hound::make_default_ranker(),
+                        hound::PublishMode::PublishSwap, 50ms);
+  idx.upsert({"1", "Alpha Ridge", 10.0});
+  REQUIRE(idx.search("alpha ridge", {.limit = 5}).empty());
+  std::this_thread::sleep_for(300ms);
+  auto hits = idx.search("alpha ridge", {.limit = 5});
+  REQUIRE_FALSE(hits.empty());
+  REQUIRE(hits.front().id == "1");
+}
+
+TEST_CASE("e3 begin_bulk defers worker until prepare", "[fuzzy_index][e3]") {
+  using namespace std::chrono_literals;
+  hound::FuzzyIndex idx(hound::make_default_fuzzy_backend(), hound::make_default_ranker(),
+                        hound::PublishMode::PublishSwap, 50ms);
+  idx.begin_bulk();
+  idx.upsert({"1", "Alpha Ridge", 10.0});
+  std::this_thread::sleep_for(300ms);
+  REQUIRE(idx.search("alpha ridge", {.limit = 5}).empty());
+  idx.prepare();
+  REQUIRE_FALSE(idx.search("alpha ridge", {.limit = 5}).empty());
 }

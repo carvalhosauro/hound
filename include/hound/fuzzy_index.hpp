@@ -121,7 +121,10 @@ class FuzzyIndex {
       // Start with empty published matching draft (also empty).
       published_.store(std::make_shared<const IndexState>(draft_), std::memory_order_release);
     }
+    start_consolidator_if_needed();
   }
+
+  ~FuzzyIndex() { stop_consolidator(); }
 
   // Defer snapshot publish across many upserts (bulk load). Call prepare() after
   // to rebuild fuzzy structures and publish once. No-op in Legacy mode.
@@ -336,6 +339,33 @@ class FuzzyIndex {
     return mode_ == PublishMode::PublishSwap && consolidate_ms_.count() > 0;
   }
 
+  void start_consolidator_if_needed() {
+    if (!deferred_publish_active()) {
+      return;
+    }
+    worker_ = std::jthread([this](std::stop_token st) {
+      std::stop_callback on_stop(st, [this] { cv_.notify_all(); });
+      std::unique_lock lock(writer_mu_);
+      while (!st.stop_requested()) {
+        cv_.wait_for(lock, consolidate_ms_, [&] { return st.stop_requested(); });
+        if (st.stop_requested()) {
+          break;
+        }
+        if (dirty_ && !defer_publish_) {
+          publish_draft_unlocked();
+        }
+      }
+    });
+  }
+
+  void stop_consolidator() {
+    if (worker_.joinable()) {
+      worker_.request_stop();
+      cv_.notify_all();
+      worker_ = std::jthread{};
+    }
+  }
+
   static void apply_upsert(IndexState& st, Document doc, const std::string& normalized) {
     auto it = st.docs.find(doc.id);
     if (it != st.docs.end()) {
@@ -376,6 +406,8 @@ class FuzzyIndex {
   IndexState draft_;
   std::atomic<std::shared_ptr<const IndexState>> published_;
   bool defer_publish_ = false;
+  std::condition_variable cv_;
+  std::jthread worker_;
 };
 
 }  // namespace hound
