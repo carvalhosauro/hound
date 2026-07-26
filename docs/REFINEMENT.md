@@ -13,10 +13,12 @@ How to run the suite day-to-day: [`AGENTS.md`](../AGENTS.md),
 
 ## Status — where we stopped (2026-07-24)
 
-**Paused after Phase E2.** Phases **A–D**, issue **#1**, **E1** (mixed-load
-baseline), and **E2** (opt-in publish-swap) are done. Default process behavior
-is unchanged: SymSpell + linear ranker + `shared_mutex`. Algorithm knobs stay
-**factories at boot / optional query overrides** — not scattered `if`s.
+**Paused after Phase E3.** Phases **A–D**, issue **#1**, **E1** (mixed-load
+baseline), **E2** (opt-in publish-swap), and **E3** (opt-in background
+consolidation with publish-swap) are done. Default process behavior is unchanged:
+SymSpell + linear ranker + `shared_mutex` (no publish-swap, no consolidate).
+Algorithm knobs stay **factories at boot / optional query overrides** — not
+scattered `if`s.
 
 | Milestone | Commits (local `main`) |
 |-----------|------------------------|
@@ -24,6 +26,7 @@ is unchanged: SymSpell + linear ranker + `shared_mutex`. Algorithm knobs stay
 | **#1** | `e669abd` uint32 postings · `7e35c17` tagged values · closed on GitHub |
 | **E1** | probe + changelog (contention baseline) |
 | **E2** | `f51563b` publish-swap opt-in · specs/plans under `docs/superpowers/` |
+| **E3** | branch `feat/e3-background-consolidation`: `3c93c10`/`1a19549` core · `3d3f482` CLI · `0070b1b` TSan · `4fbe63f`/`614973b` docs · spec/plan |
 
 SymSpell @20k RSS ~**226 MB** (was ~418 MB before #1). Optional micro baseline
 refresh (`save_baseline.sh`) still a **human** decision.
@@ -31,17 +34,18 @@ refresh (`save_baseline.sh`) still a **human** decision.
 Follow-up test gaps (optional, not blockers):
 [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5).
 
-### What we just finished (E1–E2)
+### What we just finished (E1–E3)
 
 | Slice | What | Outcome |
 |-------|------|---------|
 | **E1** | Mixed-load HTTP probe (search / write / mixed) | Contended `/search` p99 vs search-only: exact **+644 ms**, typo **+1087 ms** (E1 order caveat: write-only before mixed emptied hits) |
 | **E2** | Opt-in publish-swap behind `--publish-swap` / `HOUND_PUBLISH_SWAP` | Same-day adjusted probe (search→mixed, preserve `doc-0`): mixed p99 **−122 / −94 ms** vs legacy; writes/s **16.5→3.8**; TSan clean; **default still `shared_mutex`** |
+| **E3** | `--publish-swap --consolidate-ms N` / `HOUND_CONSOLIDATE_MS` | E2-sync vs E3 @ **200 ms**: mixed writes/s **3.7→246.2**; mixed p99 exact **1.03 s** vs **1.06 s**, typo **1.23 s** vs **1.06 s**; **default unchanged** |
 
-**E2 tradeoff:** readers avoid `unique_lock`, but each live upsert does
-SymSpell `prepare` + deep-copy before publish → write throughput collapses.
-Do **not** flip the default until a product workload needs the p99 win and
-accepts ~4 upserts/s under mixed load (or until **E3** batches publishes).
+**E2 tradeoff:** readers avoid `unique_lock`, but sync publish-swap does
+SymSpell `prepare` + deep-copy on every live upsert → ~4 writes/s under mixed
+search. **E3** batches publish on a timer when combined with publish-swap;
+still opt-in only — do not flip defaults without a product decision.
 
 ### Algorithm selection pattern (how flags work)
 
@@ -53,6 +57,7 @@ overrides only where documented (`?ranker=`, `?max_edit_distance=`).
 | Fuzzy backend | `--fuzzy-backend` / `HOUND_FUZZY_BACKEND` | SymSpell | `FuzzyBackend` impl (BK = oracle/escape) |
 | Ranker | `--ranker` / `HOUND_RANKER` / `?ranker=` | linear | `Ranker` impl (`ScoreMerger` vs `TieBreakRanker`) |
 | Concurrency | `--publish-swap` / `HOUND_PUBLISH_SWAP` | shared_mutex | `PublishMode::Legacy` vs `PublishSwap` |
+| Consolidate interval | `--consolidate-ms` / `HOUND_CONSOLIDATE_MS` (requires publish-swap) | 0 (sync publish) | Defer publish; background flush every N ms |
 | Edit distance | omit vs `?max_edit_distance=` | adaptive table | Phase C length→distance |
 
 ### Done (shipped)
@@ -66,17 +71,18 @@ overrides only where documented (`?ranker=`, `?max_edit_distance=`).
 | **#1** | uint32 postings + tagged single/multi delete values | RSS @20k **~418→226 MB** (−46%); Insert/prepare faster; fuzzy OK; **closed** |
 | **E1** | Mixed-load macro probe | Contended search p99 baseline recorded |
 | **E2** | Opt-in publish-swap (`IndexState` + atomic publish) | Modest mixed p99 win; write path costly; default unchanged |
+| **E3** | Background consolidation with publish-swap (`consolidate-ms`) | Mixed writes/s **~67×** vs sync swap @200 ms; p99 ~flat; opt-in only |
 | **Baseline** | Human `save_baseline.sh` (SymSpell default, pre-#1) | `baselines/micro_baseline.json` — consider refresh after #1 |
 
-**Accepted tradeoffs (documented):** SymSpell RSS/`prepare` vs BK; publish-swap
-write cost vs reader stall. Prefer `--fuzzy-backend bk` or legacy concurrency
-when RAM or write churn dominates.
+**Accepted tradeoffs (documented):** SymSpell RSS/`prepare` vs BK; sync
+publish-swap write cost vs reader stall; E3 trades staleness between
+consolidations for write throughput. Prefer `--fuzzy-backend bk` or legacy
+concurrency when RAM or immediate read-your-writes matters.
 
 ### Not started yet
 
 | Phase | Theme | Notes |
 |-------|-------|-------|
-| **E3** | Background / batched consolidation | Only if publish-swap write cost still hurts under real load |
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
 | **H** | Generic attrs + multi-index | Product direction; see § Phase H (docs only so far) |
@@ -84,13 +90,17 @@ when RAM or write churn dominates.
 
 ### Suggested next steps (pick one)
 
-1. **E3** — batched/background publish if write-heavy workloads need ≫4 writes/s under search (E2 measured ~3.8 writes/s).
-2. **Human** — optional `save_baseline.sh` after #1 Insert wins.
-3. **H0 follow-through** — consumer filter-after POC, or **H1** design spike when in-index filters are required.
-4. **#2–#5** / **G1** — optional test hardening or `fields=id` polish.
+1. **Process** — merge `feat/e3-background-consolidation` into `main` (E3 code
+   still lives on that branch / worktree until merged).
+2. **Human** — optional `save_baseline.sh` after #1 Insert wins (gate still tracks
+   pre-#1 Insert; fuzzy already fine).
+3. **Product** — **H0** filter-after POC in a consumer, or **H1** design spike
+   when in-index attrs/filters are required.
+4. **Polish** — [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5) / **G1** `fields=id`.
 
-Do not start ART/layout (**F**) without a new profile saying trie/layout is the
-bottleneck. Do not flip publish-swap to default without new numbers.
+Do not start ART/layout (**F1+**) without a new profile saying trie/layout is the
+bottleneck. Do not flip publish-swap or consolidate defaults without a product
+decision and fresh probe numbers.
 
 ---
 
@@ -197,7 +207,7 @@ Notes:
 
 | Learning | Status | Evidence |
 |----------|--------|----------|
-| Periodic background consolidation | **Not applied** (E3 optional) | Default upserts publish immediately; publish-swap is sync copy+prepare; no Sonic queue yet |
+| Periodic background consolidation | **Applied (E3 opt-in)** | `--publish-swap --consolidate-ms N`; default path still immediate publish / legacy mutex |
 | API returns IDs only; business outside core | **Partial** | Core is domain-agnostic; `/search` still returns scores; merge runs inside sidecar |
 | Typo tolerance ∝ term length | **Applied (Phase C)** | Adaptive table in `adaptive_edit_distance.hpp`; optional override |
 
@@ -459,7 +469,7 @@ Typesense-style lexicographic order (default Typesense
 |----|----------|---------|-----------|--------|
 | **E1** | Macro/mixed-load probe (tmp script OK): R-heavy + occasional upsert | hey / custom: search p99 during writes | Baseline contention numbers recorded | **Done** (2026-07-24) — exact p99 **+644 ms**, typo **+1087 ms** vs search-only |
 | **E2** | Double-buffer or publish/swap design spike (minimal impl) | same probe + TSan | Search p99 under writes improves vs E1; TSan clean; correctness green | **Done** (2026-07-24) — opt-in; mixed p99 −122/−94 ms vs legacy probe; writes/s 16.5→3.8 |
-| **E3** | Background consolidation (Sonic-style) — only if E2 insufficient | write churn + search latency | Changelog shows why E2 was not enough; metrics for consolidate interval | **Optional next** if write cost dominates |
+| **E3** | Background consolidation (Sonic-style) with publish-swap | write churn + search latency | E2 sync write cost addressed; interval documented | **Done** (2026-07-24) — `consolidate-ms=200`: mixed writes/s **3.7→246.2**; mixed p99 exact **1.03→1.06 s**, typo **1.23→1.06 s** |
 
 ---
 
@@ -494,7 +504,7 @@ Typesense-style lexicographic order (default Typesense
 | **P3** | Pluggable `Ranker` | **D1** |
 | **P4** | Tie-break ranker | **D2–D3** |
 | **P5** | Double-buffer / non-blocking writers | **E2** ✅ (opt-in; default unchanged) |
-| **P6** | Background consolidation | **E3** ← optional next if write churn hurts |
+| **P6** | Background consolidation | **E3** ✅ (opt-in with publish-swap; default unchanged) |
 | **P7** | SymSpell compound splitting | **G2** |
 | **P8** | Contiguous layout / ART | **F0–F1** |
 | **P9** | On-disk index | **F2** |
@@ -503,6 +513,44 @@ Typesense-style lexicographic order (default Typesense
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-24 — Phase E3 background consolidation (publish-swap)
+
+```text
+Hypothesis: Deferring publish-swap prepare+clone until a periodic consolidate
+            restores mixed write throughput without blowing mixed /search p99.
+Primary metric(s):   mixed writes/s; hey mixed /search p99 exact+typo
+Secondary metric(s): E2 sync swap baseline; correctness; default path unchanged
+Before: benchmarks/results/e3_before_e2_sync_20260724T191328Z.txt
+After:  benchmarks/results/e3_after_consolidate_200ms_20260724T191347Z.txt
+Correctness: ./scripts/run_correctness.sh + TSan consolidate — pass (branch)
+Micro gate:  quiet re-run — primary fuzzy + Insert pass; SearchExact/20000
+             ±noise (~0.97–1.17 µs vs baseline ~0.91 µs; machine variance)
+DoD items:   [x] opt-in flags  [x] probe  [x] changelog  [x] default unchanged
+Decision:    ship — opt-in only; require --publish-swap; do not flip defaults
+```
+
+- Command: `HOUND_E3_CONSOLIDATE_MS=200 ./scripts/tmp/probe_e3_mixed_load.sh`
+  (untracked wrapper → `probe_e2_mixed_load.sh`; `docs=5000`, `n=2000`, `c=50`).
+- Surfaces: `--consolidate-ms`, `HOUND_CONSOLIDATE_MS` (meaningful only with
+  `--publish-swap`); background thread flushes dirty draft on interval.
+- Metrics (mixed scenario, same probe order as E2):
+
+  | mode | writes/s | mixed p99 exact | mixed p99 typo |
+  |------|----------|-----------------|----------------|
+  | E2 sync `--publish-swap` | **3.7** | **1.026 s** | **1.228 s** |
+  | E3 `--publish-swap --consolidate-ms 200` | **246.2** | **1.064 s** | **1.058 s** |
+
+- Micro (legacy defaults): `BM_SearchFuzzy/20000/{1,2}` within gate; Insert faster
+  (post-#1). Full `run_micro.sh` showed SearchExact noise under load_avg≈2;
+  quiet repeats of `BM_SearchExact/20000` spanned 0.97–1.17 µs — not treated as
+  an E3 regression (legacy path only adds a mode branch).
+- E3 mixed exact `Size/request` dipped (~296 B vs ~619 B on sync run) — treat
+  as probe noise / eventual consistency between consolidations; re-check if
+  product needs strict read-your-writes on every upsert.
+- Decision: **ship** opt-in; keep default `shared_mutex` without consolidate;
+  use E3 when publish-swap is on and write rate matters more than immediate
+  visibility of each upsert.
 
 ### 2026-07-24 — Phase E2 publish-swap concurrency spike
 
@@ -1066,16 +1114,17 @@ POC without H1 in Hound: over-fetch from today’s `/search`, then
 3. **H1** design spike → issue when a real consumer needs in-index filters.
 4. Implement attrs equality → optional multi-index → optional numeric ranges.
 
-Do **not** block **E3**/product work on unfinished H. Prefer measuring real
-write churn before growing the document model, unless a POC needs in-process attrs.
+Do **not** block **F**/**H** product work on unfinished H slices. Prefer measuring
+real bottlenecks before growing the document model, unless a POC needs in-process
+attrs.
 
 ---
 
 ## Future decisions
 
-1. **Next on roadmap (perf):** **E3** batched/background publish **only if**
-   E2’s ~3.8 writes/s under mixed load is too low for a real workload; else
-   leave concurrency default as `shared_mutex` and keep publish-swap opt-in.
+1. **Concurrency defaults:** stay on legacy `shared_mutex`; publish-swap and
+   consolidate remain opt-in (`--publish-swap`, `--consolidate-ms`) until a
+   product workload justifies flipping defaults.
 2. **Product direction:** **Phase H** (attrs + multi-index) when a consumer
    needs in-index filters; until then filter-after in the app is enough.
 3. **SymSpell further compaction** (denser map / incremental deletes): only if RSS

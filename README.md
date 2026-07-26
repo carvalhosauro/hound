@@ -153,6 +153,14 @@ No auth in the MVP — bind to a trusted network.
 **Concurrency:** default is `shared_mutex` (concurrent readers, exclusive writers).
 Opt-in `--publish-swap` / `HOUND_PUBLISH_SWAP=1` publishes an atomic snapshot so
 readers never wait on writers (E2); upserts deep-copy state and are slower.
+With publish-swap, optional `--consolidate-ms N` / `HOUND_CONSOLIDATE_MS=N` (E3) batches
+publishes on a background timer so writes stay cheap; search may lag by about N ms until
+the next consolidate (or until `prepare()` / bulk finish). With `--snapshot`, on-write
+saves also read the published view, so they can lag the same way until consolidate/`prepare()`.
+
+```bash
+./build/hound --publish-swap --consolidate-ms 200 --load examples/sample.csv --port 8080
+```
 
 **Rankers:** `linear` (default) or `tie_break`. Response shape stays
 `id`, `score`, `text_relevance`, `external_score`.
