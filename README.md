@@ -10,22 +10,14 @@ stays the source of truth. Your app hydrates the rest.
 > Hound is the Portainer — the door you open when you need something better
 > than SQL, without standing up a search platform.
 
-MIT. One binary. Generic `{ id, text, external_score }` — no business schemas,
+MIT. One process. Generic `{ id, text, external_score }` — no business schemas,
 no private data in examples (synthetic only).
-
----
-
-## The problem it solves
 
 | Today | With Hound |
 |-------|------------|
-| `LIKE '%text%'` (slow, no typos) | Prefix + fuzzy (SymSpell by default) |
+| `LIKE '%text%'` (slow, no typos) | Prefix + typo-tolerant search |
 | “Score” = random × knob in the DB | **Your** real score → `external_score` |
 | Dumping full rows into a second store | Index thin docs → **hydrate from the DB** |
-
-You keep thinking in SQL. Hound only answers: *which ids match this query, and
-how do they rank when we merge text relevance with the score you already
-computed?*
 
 ```text
 BD (truth) ──sync──► Hound { id, text, external_score }
@@ -34,56 +26,19 @@ App ──GET /search──► ranked ids ──hydrate──► BD ──► UI
 
 ---
 
-## 60-second start
-
-**Docker (recommended):**
+## Quick start
 
 ```bash
-# Published image (after a release / main push → GHCR)
 docker run --rm -p 8080:8080 ghcr.io/carvalhosauro/hound:latest
-
-# Or build locally
-docker compose up --build
+# or: docker compose up --build
 
 curl -s 'http://127.0.0.1:8080/search?q=ada%20ash&limit=5'
 ```
 
-Image: `ghcr.io/carvalhosauro/hound` — tags `:latest` / `:vX.Y.Z` on version tags,
-`:main` on every push to `main`. Workflow: [`.github/workflows/publish-ghcr.yml`](.github/workflows/publish-ghcr.yml).
-If `docker pull` says denied on a public repo, set the GHCR package visibility to
-**Public** once (Packages → hound → Package settings).
-
-**From source:**
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-
-./build/hound --load examples/sample.csv --port 8080
-```
-
-```bash
-curl -s 'localhost:8080/search?q=ada%20ash&limit=5&alpha=0.7'
-```
-
-Requirements (source): CMake ≥ 3.20, C++20 compiler, Git (FetchContent pulls Catch2,
-cpp-httplib, nlohmann/json).
-
-DX roadmap (install, sync recipes, graduate to Meili/ES): [`docs/DX.md`](docs/DX.md).
-
-| Binary | Role |
-|--------|------|
-| `build/hound` | HTTP sidecar |
-| `build/hound_bulk_load` | CLI bulk ingest → optional snapshot |
-| `build/hound_tests` | unit + golden + integration |
-| `build/hound_bench` | legacy summary bench |
-| `build-bench/hound_bench_micro` | Google Benchmark micro suite |
-
-```bash
-ctest --test-dir build --output-on-failure
-# or
-./scripts/run_correctness.sh
-```
+That loads a synthetic sample CSV and serves on `:8080`. Image:
+`ghcr.io/carvalhosauro/hound` (`:latest` / `:vX.Y.Z` on tags, `:main` on
+`main`). Build from source and contributor commands live under
+[Advanced](#advanced).
 
 ---
 
@@ -101,21 +56,14 @@ Three fields. That’s the product.
 | `external_score` | **You** (job / SQL / app) | Quality, volume, rating — business truth |
 | `id` | Your primary key | So the app can hydrate |
 
-Ranking (default):
+Default ranking:
 
 ```text
 final = α · text_relevance + (1 − α) · normalize(external_score)
 ```
 
-Optional `tie_break` ranker: text → external → id (Typesense-style order,
-`α` ignored). Per-query: `?ranker=tie_break`.
-
 **Not in the index (on purpose):** distance, personalization, “open now”
-business rules. Over-fetch ids, filter/rerank in the app or DB — same pattern
-as Portainer: keep the familiar control plane.
-
-Roadmap for generic filter attrs + multi-index: [docs/REFINEMENT.md](docs/REFINEMENT.md)
-(Phase H).
+rules. Over-fetch ids, then filter/rerank in the app or DB.
 
 ---
 
@@ -129,8 +77,6 @@ curl -s -X POST localhost:8080/index \
   -d '{"id":"1","text":"Ada Ash","external_score":10}'
 
 curl -s 'localhost:8080/search?q=ada%20ash&limit=5&alpha=0.7'
-# curl -s 'localhost:8080/search?q=ada&max_edit_distance=1'
-# curl -s 'localhost:8080/search?q=ada%20ash&ranker=tie_break'
 
 curl -s -X DELETE localhost:8080/index/1
 
@@ -139,7 +85,7 @@ curl -s -X POST localhost:8080/index/bulk \
   -d '[{"id":"1","text":"Ada Ash","external_score":10},{"id":"2","text":"Blake Brook","external_score":3}]'
 ```
 
-CSV for `--load` / `hound_bulk_load`:
+CSV for `--load` / bulk tools:
 
 ```csv
 id,text,external_score
@@ -147,65 +93,94 @@ id,text,external_score
 2,Blake Brook,3.0
 ```
 
-```bash
-# snapshot across restarts
-./build/hound --load examples/sample.csv --snapshot /tmp/hound.snap --port 8080
-```
-
 No auth in the MVP — bind to a trusted network.
 
+**`GET /search` knobs** (defaults, use cases, trade-offs):
+[`docs/search-params.md`](docs/search-params.md). Process flags
+(`--fuzzy-backend`, `--publish-swap`, …) are on the same page.
+
 ---
 
-## Fuzzy & rankers (knobs that matter)
+## Sync (short)
 
-**Fuzzy backends**
+Hound does **not** query your database. Your app or job **pushes** thin docs
+(`POST /index`, bulk, or `--load`). Upserts are idempotent by `id`; deletes are
+explicit (or rebuild from a full export).
 
-| Backend | Select | Best when | ≈20k synthetic docs |
-|---------|--------|-----------|---------------------|
-| **SymSpell** (default) | omit / `--fuzzy-backend symspell` | Bulk once, then many searches | Fuzzy ~µs; RSS ~226 MB |
-| **BK-tree** | `--fuzzy-backend bk` or `HOUND_FUZZY_BACKEND=bk` | Tight RAM, write churn, oracle tests | Fuzzy ~ms; RSS ~30 MB |
+| Pattern | Guide |
+|---------|--------|
+| **A** Full reload (export → `--load`) | [`docs/sync-reload.md`](docs/sync-reload.md) |
+| **B** Write-through (`POST /index`) | [`docs/sync-writethrough.md`](docs/sync-writethrough.md) |
+| Snapshot across restarts | [`docs/snapshot.md`](docs/snapshot.md) |
+| Hydrate ids → SQL | [`docs/hydrate.md`](docs/hydrate.md) |
+
+Roadmap index: [`docs/DX.md`](docs/DX.md).
+
+---
+
+## Graduate
+
+Hound is a **front door**. Leave when the product outgrows three fields +
+hydrate. Checklist, field mapping (Meili / ES / Typesense), and honesty box:
+[`docs/graduate.md`](docs/graduate.md).
+
+| Stay on Hound when… | Graduate when you need… |
+|---------------------|-------------------------|
+| Typo-tolerant suggest + your own score | Facets, heavy in-index filters |
+| One process beside Postgres/MySQL | Multi-region search clusters |
+| App hydrates full rows from the DB | Analytics / full document search UI |
+
+Typical next stops: **Meilisearch** / **Typesense**, **Elasticsearch** /
+**OpenSearch**, or **Sonic** (token suggest only).
+
+---
+
+## Advanced
+
+### Build from source
 
 ```bash
-./build/hound --fuzzy-backend bk --load examples/sample.csv --port 8080
-./build/hound --ranker tie_break --load examples/sample.csv --port 8080
-./build/hound --publish-swap --load examples/sample.csv --port 8080
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+./build/hound --load examples/sample.csv --port 8080
 ```
 
-**Concurrency:** default is `shared_mutex` (concurrent readers, exclusive writers).
-Opt-in `--publish-swap` / `HOUND_PUBLISH_SWAP=1` publishes an atomic snapshot so
-readers never wait on writers (E2); upserts deep-copy state and are slower.
-With publish-swap, optional `--consolidate-ms N` / `HOUND_CONSOLIDATE_MS=N` (E3) batches
-publishes on a background timer so writes stay cheap; search may lag by about N ms until
-the next consolidate (or until `prepare()` / bulk finish). With `--snapshot`, on-write
-saves also read the published view, so they can lag the same way until consolidate/`prepare()`.
+Needs CMake ≥ 3.20, C++20, Git (FetchContent). Correctness:
+`./scripts/run_correctness.sh`.
+
+| Binary | Role |
+|--------|------|
+| `build/hound` | HTTP sidecar |
+| `build/hound_bulk_load` | CLI bulk ingest → optional snapshot |
+| `build/hound_tests` | unit + golden + integration |
+| `build-bench/hound_bench_micro` | Google Benchmark micro suite |
+
+### Fuzzy, rankers, concurrency
+
+Full tables (params + flags, use case / trade-off):
+[`docs/search-params.md`](docs/search-params.md).
+
+Short defaults:
+
+| Concern | Default | Common override |
+|---------|---------|-----------------|
+| Fuzzy | SymSpell | `--fuzzy-backend bk` (RAM / write churn) |
+| Ranker | `linear` (α = 0.7) | `?ranker=tie_break` or `--ranker tie_break` |
+| Concurrency | `shared_mutex` | `--publish-swap --consolidate-ms 200` |
+| Restart | cold `--load` | `--snapshot PATH` |
 
 ```bash
-./build/hound --publish-swap --consolidate-ms 200 --load examples/sample.csv --port 8080
+./build/hound --publish-swap --consolidate-ms 200 \
+  --load examples/sample.csv --snapshot /tmp/hound.snap --port 8080
 ```
 
-**Rankers:** `linear` (default) or `tie_break`. Response shape stays
-`id`, `score`, `text_relevance`, `external_score`.
+### Image & GHCR
 
----
+Workflow: [`.github/workflows/publish-ghcr.yml`](.github/workflows/publish-ghcr.yml).
+If `docker pull` is denied on this public repo, set the GHCR package visibility
+to **Public** once (Packages → hound → Package settings).
 
-## Who this is for
-
-- Indie hackers and small teams drowning in `LIKE` + bad ranking
-- SaaS apps that already have a DB and refuse a second source of truth
-- Anyone who wants typo-tolerant search **and** to keep business score in-house
-
-## Who should look elsewhere
-
-- You need facets, analytics, multi-region clusters → Elasticsearch / OpenSearch
-- You want a full document search product with filters day-one → Meilisearch / Typesense
-- You only need suggest tokens → Sonic
-
-Hound’s bet is narrower on purpose: **candidate ids + first-class external score
-beside the RDBMS.**
-
----
-
-## Benchmarks
+### Benchmarks
 
 ```bash
 ./scripts/run_micro.sh
@@ -213,21 +188,23 @@ beside the RDBMS.**
 ./scripts/run_macro.sh   # needs: go install github.com/rakyll/hey@latest
 ```
 
-Micro: insert / exact / fuzzy / score-merge at 1k · 5k · 20k (synthetic, seed 42).  
-Macro: live HTTP + JSON. Don’t compare µs to hey latencies.
-
-When to run what: [AGENTS.md](AGENTS.md). Profiling:
-[benchmarks/profiling/README.md](benchmarks/profiling/README.md).
+Micro ≠ macro (don’t compare µs to hey). When to run what: [AGENTS.md](AGENTS.md).
+Profiling: [benchmarks/profiling/README.md](benchmarks/profiling/README.md).
 
 ---
 
-## Docs & layout
+## Docs
 
 | Doc | What |
 |-----|------|
-| [docs/PLANO.md](docs/PLANO.md) | Design & phases |
-| [docs/REFINEMENT.md](docs/REFINEMENT.md) | Post-MVP (perf + Phase H attrs) |
 | [docs/DX.md](docs/DX.md) | Install / docs / sync / graduate DX roadmap |
+| [docs/sync-reload.md](docs/sync-reload.md) | Sync pattern A (full reload) |
+| [docs/sync-writethrough.md](docs/sync-writethrough.md) | Sync pattern B (write-through) |
+| [docs/hydrate.md](docs/hydrate.md) | Hydrate ranked ids from SQL |
+| [docs/graduate.md](docs/graduate.md) | When / how to leave Hound |
+| [docs/search-params.md](docs/search-params.md) | `/search` params + process flags (trade-offs) |
+| [docs/PLANO.md](docs/PLANO.md) | Design & phases |
+| [docs/REFINEMENT.md](docs/REFINEMENT.md) | Post-MVP perf + Phase H attrs |
 | [AGENTS.md](AGENTS.md) | Contributor workflow |
 
 Core under `include/hound/` stays free of HTTP/CSV. API and ingest sit outside.

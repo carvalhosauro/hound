@@ -92,8 +92,8 @@ concurrency when RAM or immediate read-your-writes matters.
 
 ### Suggested next steps (pick one)
 
-1. **DX** — [`docs/DX.md`](DX.md): compose demo (**D0.2**), README Docker-first polish
-   (**D0.3**), sync recipes (**D2**), graduate checklist (**D3**).
+1. **DX** — [`docs/DX.md`](DX.md): OpenAPI (**D1.2**), auth story (**D4.4**);
+   sync/graduate/hydrate/search-params guides shipped.
 2. **Product** — **H0** filter-after POC in a consumer, or **H1** design spike
    when in-index attrs/filters are required.
 3. **Polish** — [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5) / **G1** `fields=id`.
@@ -1143,9 +1143,12 @@ attrs.
 
 ## Sync — keeping Hound aligned with the RDBMS
 
-**Status:** design + DX recipes (docs). Hound does **not** pull from the DB by
-itself; the app/job **pushes** thin docs. Install/recipe detail:
-[`DX.md`](DX.md) §D2. Product framing also in Phase H0 (sync fan-in).
+**Status:** design + **shipped DX recipes**. Hound does **not** pull from the DB by
+itself; the app/job **pushes** thin docs. Guides:
+[`sync-reload.md`](sync-reload.md) (**A**),
+[`sync-writethrough.md`](sync-writethrough.md) (**B**),
+[`snapshot.md`](snapshot.md), index in [`DX.md`](DX.md).
+Product framing also in Phase H0 (sync fan-in).
 
 ### Contract
 
@@ -1192,9 +1195,9 @@ graduating to Meili/ES (same push shape: id + searchable text + sort field).
 
 ### Suggested sync slices
 
-1. Document recipes **A** and **B** under [`DX.md`](DX.md) D2 (copy-paste).
-2. Synthetic example worker script (no real PII) — optional.
-3. Only then consider CDC/bus templates if a real consumer needs them.
+1. ~~Document recipes **A** and **B** under DX~~ — **done** (`sync-*.md` + demos).
+2. CDC/bus templates only if a real consumer needs them (still outside Hound).
+3. Optional: more synthetic workers — only when copy-paste gaps appear.
 
 ---
 
