@@ -28,8 +28,8 @@ scattered `if`s.
 | **E2** | `f51563b` publish-swap opt-in · specs/plans under `docs/superpowers/` |
 | **E3** | `86f3001` merge · `3c93c10`/`1a19549` core · `3d3f482` CLI · `0070b1b` TSan · docs/spec/plan |
 
-SymSpell @20k RSS ~**226 MB** (was ~418 MB before #1). Optional micro baseline
-refresh (`save_baseline.sh`) still a **human** decision.
+SymSpell @20k RSS ~**226 MB** (was ~418 MB before #1). Micro baseline refreshed
+2026-07-26 (post-#1 Insert + current SymSpell defaults) via `save_baseline.sh`.
 
 Follow-up test gaps (optional, not blockers):
 [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5).
@@ -72,7 +72,7 @@ overrides only where documented (`?ranker=`, `?max_edit_distance=`).
 | **E1** | Mixed-load macro probe | Contended search p99 baseline recorded |
 | **E2** | Opt-in publish-swap (`IndexState` + atomic publish) | Modest mixed p99 win; write path costly; default unchanged |
 | **E3** | Background consolidation with publish-swap (`consolidate-ms`) | Mixed writes/s **~67×** vs sync swap @200 ms; p99 ~flat; opt-in only |
-| **Baseline** | Human `save_baseline.sh` (SymSpell default, pre-#1) | `baselines/micro_baseline.json` — consider refresh after #1 |
+| **Baseline** | Human `save_baseline.sh` (2026-07-26) | `baselines/micro_baseline.json` — Insert/20k **~2703→1141 ms** (−58%); Fuzzy/20k/2 **~7.3→5.8 µs** |
 
 **Accepted tradeoffs (documented):** SymSpell RSS/`prepare` vs BK; sync
 publish-swap write cost vs reader stall; E3 trades staleness between
@@ -90,12 +90,10 @@ concurrency when RAM or immediate read-your-writes matters.
 
 ### Suggested next steps (pick one)
 
-1. **Human** — optional `save_baseline.sh` after #1 Insert wins (gate still tracks
-   pre-#1 Insert; fuzzy already fine).
-2. **Product** — **H0** filter-after POC in a consumer, or **H1** design spike
+1. **Product** — **H0** filter-after POC in a consumer, or **H1** design spike
    when in-index attrs/filters are required.
-3. **Polish** — [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5) / **G1** `fields=id`.
-4. **F0** — re-profile only if trie/layout is suspected after SymSpell wins.
+2. **Polish** — [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5) / **G1** `fields=id`.
+3. **F0** — re-profile only if trie/layout is suspected after SymSpell wins.
 
 Do not start ART/layout (**F1+**) without a new profile saying trie/layout is the
 bottleneck. Do not flip publish-swap or consolidate defaults without a product
@@ -320,14 +318,15 @@ Optional but encouraged when the change touches wider surfaces:
 Paste the comparer table (or failing names) in the PR / Phase 2 changelog.
 Do **not** claim a fuzzy win without the two primary names above.
 
-Baseline reference (versioned `baselines/micro_baseline.json`, cpu_time):
+Baseline reference (versioned `baselines/micro_baseline.json`, cpu_time;
+refreshed **2026-07-26** post-#1):
 
 | name | cpu_time |
 |------|----------|
-| `BM_SearchFuzzy/20000/1` | ~110 µs |
-| `BM_SearchFuzzy/20000/2` | ~802 µs |
-| `BM_SearchExact/20000` | ~3.4 µs |
-| `BM_Insert/20000` | ~103 ms |
+| `BM_SearchFuzzy/20000/1` | ~1.70 µs |
+| `BM_SearchFuzzy/20000/2` | ~5.82 µs |
+| `BM_SearchExact/20000` | ~0.93 µs |
+| `BM_Insert/20000` | ~1141 ms |
 
 ---
 
@@ -512,6 +511,25 @@ Typesense-style lexicographic order (default Typesense
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-26 — Accept post-#1 micro baseline
+
+```text
+Hypothesis: Human accepts current SymSpell-default micro (post-#1 Insert/RSS)
+            as the versioned gate so compare_bench tracks real Insert level.
+Primary metric(s):   baselines/micro_baseline.json from micro_baseline_refresh_*
+Secondary metric(s): BM_SearchFuzzy/20000/{1,2}; SearchExact guards
+Commands: ./scripts/run_micro.sh → save_baseline.sh micro_baseline_refresh_20260726T043405Z.json
+Correctness: N/A (baseline promotion)
+Micro gate:  new reference (vs old SymSpell pre-#1 baseline: Insert −58%, Fuzzy/2 −20%)
+Decision:    ship — baseline updated
+```
+
+- Gate snapshot (cpu_time): Insert/20k ~**1141 ms**; SearchFuzzy/20k/1 ~**1.70 µs**;
+  SearchFuzzy/20k/2 ~**5.82 µs**; SearchExact/20k ~**0.93 µs**
+- vs previous versioned baseline (SymSpell default, pre-#1 Insert): Insert/20k
+  **2703→1141 ms**; Fuzzy/20k/2 **7.32→5.82 µs**; Exact ~flat
+- Decision: **ship**
 
 ### 2026-07-24 — Phase E3 background consolidation (publish-swap)
 
