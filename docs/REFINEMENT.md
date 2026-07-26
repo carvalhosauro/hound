@@ -26,7 +26,7 @@ scattered `if`s.
 | **#1** | `e669abd` uint32 postings · `7e35c17` tagged values · closed on GitHub |
 | **E1** | probe + changelog (contention baseline) |
 | **E2** | `f51563b` publish-swap opt-in · specs/plans under `docs/superpowers/` |
-| **E3** | `0070b1b` consolidate-ms · `1a19549`/`3d3f482` core+CLI · E3 spec/plan |
+| **E3** | branch `feat/e3-background-consolidation`: `3c93c10`/`1a19549` core · `3d3f482` CLI · `0070b1b` TSan · `4fbe63f`/`614973b` docs · spec/plan |
 
 SymSpell @20k RSS ~**226 MB** (was ~418 MB before #1). Optional micro baseline
 refresh (`save_baseline.sh`) still a **human** decision.
@@ -90,10 +90,13 @@ concurrency when RAM or immediate read-your-writes matters.
 
 ### Suggested next steps (pick one)
 
-1. **Human** — optional `save_baseline.sh` after #1 Insert wins.
-2. **H0 follow-through** — consumer filter-after POC, or **H1** design spike when in-index filters are required.
-3. **#2–#5** / **G1** — optional test hardening or `fields=id` polish.
-4. **F0** — re-profile if trie/layout is suspected after SymSpell wins.
+1. **Process** — merge `feat/e3-background-consolidation` into `main` (E3 code
+   still lives on that branch / worktree until merged).
+2. **Human** — optional `save_baseline.sh` after #1 Insert wins (gate still tracks
+   pre-#1 Insert; fuzzy already fine).
+3. **Product** — **H0** filter-after POC in a consumer, or **H1** design spike
+   when in-index attrs/filters are required.
+4. **Polish** — [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5) / **G1** `fields=id`.
 
 Do not start ART/layout (**F1+**) without a new profile saying trie/layout is the
 bottleneck. Do not flip publish-swap or consolidate defaults without a product
