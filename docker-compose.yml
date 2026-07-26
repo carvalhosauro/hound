@@ -1,0 +1,17 @@
+# One-file demo: Hound with synthetic sample data (DX D0.2).
+# Usage:
+#   docker compose up --build
+#   curl -s 'http://127.0.0.1:8080/search?q=ada%20ash&limit=5'
+#
+# Custom CSV/JSON (read-only mount):
+#   command: ["--host", "0.0.0.0", "--port", "8080", "--load", "/data/docs.csv"]
+#   volumes: ["./data:/data:ro"]
+
+services:
+  hound:
+    build: .
+    image: hound:local
+    ports:
+      - "8080:8080"
+    # Default CMD loads /app/examples/sample.csv (see Dockerfile).
+    restart: unless-stopped

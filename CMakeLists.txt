@@ -18,14 +18,8 @@ include(FetchContent)
 
 set(HTTPLIB_USE_OPENSSL_IF_AVAILABLE OFF CACHE BOOL "" FORCE)
 set(HTTPLIB_USE_ZLIB_IF_AVAILABLE OFF CACHE BOOL "" FORCE)
-set(CATCH_INSTALL_DOCS OFF CACHE BOOL "" FORCE)
 set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
 
-FetchContent_Declare(
-  Catch2
-  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-  GIT_TAG v3.7.1
-)
 FetchContent_Declare(
   httplib
   GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
@@ -37,7 +31,9 @@ FetchContent_Declare(
   GIT_TAG v3.11.3
 )
 
-FetchContent_MakeAvailable(Catch2 httplib json)
+# Runtime deps only here. Catch2/benchmark stay behind their options so Docker
+# and -DHOUND_BUILD_TESTS=OFF images skip a large FetchContent download.
+FetchContent_MakeAvailable(httplib json)
 
 find_package(Threads REQUIRED)
 
@@ -58,6 +54,14 @@ add_executable(hound_bulk_load tools/bulk_load.cpp)
 target_link_libraries(hound_bulk_load PRIVATE hound_core)
 
 if(HOUND_BUILD_TESTS)
+  set(CATCH_INSTALL_DOCS OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG v3.7.1
+  )
+  FetchContent_MakeAvailable(Catch2)
+
   enable_testing()
   list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
   include(CTest)
