@@ -27,6 +27,7 @@ scattered `if`s.
 | **E1** | probe + changelog (contention baseline) |
 | **E2** | `f51563b` publish-swap opt-in · specs/plans under `docs/superpowers/` |
 | **E3** | `86f3001` merge · `3c93c10`/`1a19549` core · `3d3f482` CLI · `0070b1b` TSan · docs/spec/plan |
+| **Baseline** | `save_baseline.sh` 2026-07-26 (`micro_baseline_refresh_20260726T043405Z`) |
 
 SymSpell @20k RSS ~**226 MB** (was ~418 MB before #1). Micro baseline refreshed
 2026-07-26 (post-#1 Insert + current SymSpell defaults) via `save_baseline.sh`.
@@ -86,14 +87,17 @@ concurrency when RAM or immediate read-your-writes matters.
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
 | **H** | Generic attrs + multi-index | Product direction; see § Phase H (docs only so far) |
+| **Sync** | DB → Hound push patterns | Docs in § Sync + [`DX.md`](DX.md) D2; no connector in-core |
 | **#2–#5** | Ranker test hardening | Optional; DoD for D already met |
 
 ### Suggested next steps (pick one)
 
-1. **Product** — **H0** filter-after POC in a consumer, or **H1** design spike
+1. **DX** — [`docs/DX.md`](DX.md): compose demo (**D0.2**), README Docker-first polish
+   (**D0.3**), sync recipes (**D2**), graduate checklist (**D3**).
+2. **Product** — **H0** filter-after POC in a consumer, or **H1** design spike
    when in-index attrs/filters are required.
-2. **Polish** — [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5) / **G1** `fields=id`.
-3. **F0** — re-profile only if trie/layout is suspected after SymSpell wins.
+3. **Polish** — [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5) / **G1** `fields=id`.
+4. **F0** — re-profile only if trie/layout is suspected after SymSpell wins.
 
 Do not start ART/layout (**F1+**) without a new profile saying trie/layout is the
 bottleneck. Do not flip publish-swap or consolidate defaults without a product
@@ -1137,6 +1141,63 @@ attrs.
 
 ---
 
+## Sync — keeping Hound aligned with the RDBMS
+
+**Status:** design + DX recipes (docs). Hound does **not** pull from the DB by
+itself; the app/job **pushes** thin docs. Install/recipe detail:
+[`DX.md`](DX.md) §D2. Product framing also in Phase H0 (sync fan-in).
+
+### Contract
+
+| Side | Owns | Mechanism |
+|------|------|-----------|
+| RDBMS | Source of truth (full rows, business rules) | SQL / app writes |
+| App / job | Projection `{ id, text, external_score }` (+ future attrs) | Push into Hound |
+| Hound | Ranked candidate ids | `POST /index`, `/index/bulk`, `DELETE /index/{id}`, `--load` CSV/JSON |
+
+Idempotent upsert by `id`. Deletes must be explicit (or rebuild from a full export).
+
+### Patterns (pick by churn)
+
+| Pattern | How | Best when | Lag | Cost |
+|---------|-----|-----------|-----|------|
+| **A. Full reload** | Periodic `SELECT` → CSV/JSON → `--load` / bulk (+ optional `--snapshot`) | Small corpora; rare writes; simplest ops | Minutes–hours | Rebuild RAM index each run |
+| **B. Write-through** | App (or outbox worker) `POST /index` on create/update; `DELETE` on remove | Interactive UIs; near-real-time suggest | Seconds (or ~N ms with E3 consolidate) | Live upsert cost; SymSpell `prepare` unless E3 |
+| **C. Outbox / CDC** | DB outbox or Debezium/etc. → worker → Hound HTTP | Many writers; reliable delivery | Seconds | Infra outside Hound |
+| **D. Message bus** | Kafka/Rabbit topic → consumer → upsert | Already have a bus; multi-service fan-in | Seconds | Hound never speaks Kafka |
+
+**Recommended default for “front door” apps:** **B** (write-through) for entities
+users type against, plus occasional **A** rebuild as a safety net (e.g. nightly)
+if drift is unacceptable.
+
+### Concurrency knobs that affect sync
+
+| Load shape | Suggested flags |
+|------------|-----------------|
+| Bulk load then mostly reads | Defaults (SymSpell + `shared_mutex`) |
+| Mixed search + frequent upserts, care about search p99 | `--publish-swap --consolidate-ms N` (E3) |
+| Tight RAM / rare search | `--fuzzy-backend bk` |
+
+Snapshot (`--snapshot`) persists the **published** view across restarts; with E3
+it can lag live upserts until consolidate/`prepare()` (see README).
+
+### Non-goals
+
+- Hound querying Postgres/MySQL directly
+- Built-in CDC/Kafka clients
+- Two-way sync (Hound → DB)
+
+Those stay in the app or a thin worker — keeps the sidecar replaceable when
+graduating to Meili/ES (same push shape: id + searchable text + sort field).
+
+### Suggested sync slices
+
+1. Document recipes **A** and **B** under [`DX.md`](DX.md) D2 (copy-paste).
+2. Synthetic example worker script (no real PII) — optional.
+3. Only then consider CDC/bus templates if a real consumer needs them.
+
+---
+
 ## Future decisions
 
 1. **Concurrency defaults:** stay on legacy `shared_mutex`; publish-swap and
@@ -1144,10 +1205,12 @@ attrs.
    product workload justifies flipping defaults.
 2. **Product direction:** **Phase H** (attrs + multi-index) when a consumer
    needs in-index filters; until then filter-after in the app is enough.
+   Sync stays push-based (see **Sync** section + [`DX.md`](DX.md) D2).
 3. **SymSpell further compaction** (denser map / incremental deletes): only if RSS
    or write-churn still hurts — file a new issue when starting that slice.
 4. **Ranker test hardening (optional):** [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5).
 5. Revisit ART / contiguous layout only after a post-SymSpell profile (**F0→F1**).
 6. On-disk compressed postings if snapshot rebuild/RSS hurts (**F2**).
 7. Optional `fields=id` projection without removing score fields (**G1**).
-8. Optional human `save_baseline.sh` after #1 Insert wins.
+8. **DX / SDKs:** OpenAPI + thin clients per [`DX.md`](DX.md) D1.2 / D5 — prefer
+   hand-written thin client first; codegen only after a stable OpenAPI.

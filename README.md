@@ -36,6 +36,25 @@ App ──GET /search──► ranked ids ──hydrate──► BD ──► UI
 
 ## 60-second start
 
+**Docker (recommended):**
+
+```bash
+# Published image (after a release / main push → GHCR)
+docker run --rm -p 8080:8080 ghcr.io/carvalhosauro/hound:latest
+
+# Or build locally
+docker compose up --build
+
+curl -s 'http://127.0.0.1:8080/search?q=ada%20ash&limit=5'
+```
+
+Image: `ghcr.io/carvalhosauro/hound` — tags `:latest` / `:vX.Y.Z` on version tags,
+`:main` on every push to `main`. Workflow: [`.github/workflows/publish-ghcr.yml`](.github/workflows/publish-ghcr.yml).
+If `docker pull` says denied on a public repo, set the GHCR package visibility to
+**Public** once (Packages → hound → Package settings).
+
+**From source:**
+
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
@@ -47,8 +66,10 @@ cmake --build build -j
 curl -s 'localhost:8080/search?q=ada%20ash&limit=5&alpha=0.7'
 ```
 
-Requirements: CMake ≥ 3.20, C++20 compiler, Git (FetchContent pulls Catch2,
+Requirements (source): CMake ≥ 3.20, C++20 compiler, Git (FetchContent pulls Catch2,
 cpp-httplib, nlohmann/json).
+
+DX roadmap (install, sync recipes, graduate to Meili/ES): [`docs/DX.md`](docs/DX.md).
 
 | Binary | Role |
 |--------|------|
@@ -206,6 +227,7 @@ When to run what: [AGENTS.md](AGENTS.md). Profiling:
 |-----|------|
 | [docs/PLANO.md](docs/PLANO.md) | Design & phases |
 | [docs/REFINEMENT.md](docs/REFINEMENT.md) | Post-MVP (perf + Phase H attrs) |
+| [docs/DX.md](docs/DX.md) | Install / docs / sync / graduate DX roadmap |
 | [AGENTS.md](AGENTS.md) | Contributor workflow |
 
 Core under `include/hound/` stays free of HTTP/CSV. API and ingest sit outside.
