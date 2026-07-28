@@ -203,6 +203,8 @@ Profiling: [benchmarks/profiling/README.md](benchmarks/profiling/README.md).
 | [docs/DX.md](docs/DX.md) | Install / docs / sync / graduate / maturity (D7) DX roadmap |
 | [docs/openapi.yaml](docs/openapi.yaml) | Machine-readable HTTP API (OpenAPI 3) |
 | [docs/compat.md](docs/compat.md) | HTTP compatibility / semver intent |
+| [docs/release.md](docs/release.md) | How to cut a semver release (GHCR + binary) |
+| [CHANGELOG.md](CHANGELOG.md) | Notable changes per version |
 | [docs/sync-reload.md](docs/sync-reload.md) | Sync pattern A (full reload) |
 | [docs/sync-writethrough.md](docs/sync-writethrough.md) | Sync pattern B (write-through) |
 | [docs/hydrate.md](docs/hydrate.md) | Hydrate ranked ids from SQL |

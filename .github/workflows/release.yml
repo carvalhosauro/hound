@@ -1,0 +1,90 @@
+# GitHub Release + linux amd64 binary (DX D7.2 / D0.4).
+#
+# Trigger: annotated or lightweight tag matching v* (e.g. v0.1.0).
+# GHCR image publish remains in publish-ghcr.yml (:latest only on v* tags).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  binary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build
+
+      - name: Configure & build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHOUND_BUILD_TESTS=OFF \
+            -DHOUND_BUILD_BENCH=OFF
+          cmake --build build -j"$(nproc)" --target hound
+
+      - name: Package
+        id: pkg
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          OUT="hound-${VER}-linux-amd64"
+          mkdir -p dist
+          cp build/hound "dist/${OUT}"
+          chmod +x "dist/${OUT}"
+          (
+            cd dist
+            sha256sum "${OUT}" > SHA256SUMS
+          )
+          echo "asset=${OUT}" >> "$GITHUB_OUTPUT"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract CHANGELOG section
+        id: notes
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          ver = tag[1:] if tag.startswith("v") else tag
+          text = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          # ## [0.1.0] — date   ... until next ##
+          pat = rf"^## \[{re.escape(ver)}\].*?(?=^## |\Z)"
+          m = re.search(pat, text, flags=re.M | re.S)
+          body = m.group(0).strip() if m else f"Release {tag}.\n\nSee CHANGELOG.md."
+          extra = (
+              "\n\n---\n\n"
+              f"- Image: `ghcr.io/{os.environ['GITHUB_REPOSITORY'].lower()}:{ver}` "
+              f"(also `:{tag}`, `:latest`)\n"
+              "- Binary: attach `hound-*-linux-amd64` + `SHA256SUMS`\n"
+              "- Compat: docs/compat.md · OpenAPI: docs/openapi.yaml\n"
+          )
+          Path("release_notes.md").write_text(body + extra, encoding="utf-8")
+          print(body[:200])
+          PY
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release_notes.md
+          files: |
+            dist/hound-*-linux-amd64
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

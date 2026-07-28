@@ -1,9 +1,11 @@
-# Publish container image to GitHub Container Registry (DX D0.5).
+# Publish container image to GitHub Container Registry (DX D0.5 / D7.2).
 #
 # Tags:
 #   push v1.2.3  → ghcr.io/<owner>/hound:1.2.3 + :v1.2.3 + :latest
-#   push main    → ghcr.io/<owner>/hound:main
+#   push main    → ghcr.io/<owner>/hound:main   (:latest is NEVER from main)
 #   workflow_dispatch → :sha-<short> (+ :main if on default branch)
+#
+# Cutting a release: docs/release.md. Binary GitHub Release: release.yml.
 #
 # After the first successful run, set the package visibility to Public:
 #   https://github.com/users/<owner>/packages/container/hound/settings

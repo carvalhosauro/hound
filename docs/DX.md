@@ -23,6 +23,7 @@ Related: product/perf roadmap in [`REFINEMENT.md`](REFINEMENT.md), design in
 | When / how to leave Hound | [`graduate.md`](graduate.md) |
 | HTTP compatibility | [`compat.md`](compat.md) |
 | OpenAPI (machine-readable) | [`openapi.yaml`](openapi.yaml) |
+| Cut a release | [`release.md`](release.md) · [`CHANGELOG.md`](../CHANGELOG.md) |
 
 Synthetic demos (need a running Hound):
 
@@ -60,14 +61,14 @@ not a DX milestone). Roadmap **D7** tracks maturity only.
 | Mental model | Strong — 3 fields, hydrate pattern | Keep |
 | HTTP API | Small (`/health`, `/index`, `/search`, bulk, delete) | OpenAPI shipped (**D1.2**) |
 | Local start | Docker / GHCR first; CMake secondary | Package Public after first GHCR push |
-| Docker / releases | Dockerfile + compose + GHCR workflow | Multi-arch; optional binary releases (**D0.4**) |
+| Docker / releases | Dockerfile + compose + GHCR + Release workflow | Multi-arch / arm64 binary when native runner exists |
 | Sync from DB | Recipes **A** / **B** + snapshot + demos | CDC/bus templates only if demanded |
 | Search / flags docs | [`search-params.md`](search-params.md) | — |
 | Hydrate | Postgres + MySQL cookbook | — |
 | Auth | None (trusted network) | Threat model doc (**D4.4** / **D7.3**) |
 | SDKs | curl only | Optional thin clients after OpenAPI (**D5.2**) |
 | Graduate path | Checklist + field mapping | — |
-| Release hygiene | GHCR on `main` / `v*`; no binary assets yet | Semver policy + changelog + **D0.4** (**D7.2**) |
+| Release hygiene | Semver tags + CHANGELOG + `:latest` only on `v*` + amd64 binary | First `v0.1.0` tag when ready ([`release.md`](release.md)) |
 | API contract | OpenAPI + [`compat.md`](compat.md) | Keep OpenAPI in sync with `http_api.hpp` |
 | Production evidence | Synthetic benches + local demos | External / dogfood write-up (**D7.5**) |
 | Advanced knobs | Behind README Advanced | Keep |
@@ -99,7 +100,7 @@ optional platforms / clients.
 | **D0.1** | Multi-stage `Dockerfile` + `.dockerignore` | `docker build` → image; `docker run` serves `/health` + sample search | **Done** |
 | **D0.2** | `docker compose` one-file demo (hound + sample load) | `docker compose up` → curl works | **Done** |
 | **D0.3** | README “60-second start” leads with Docker; CMake secondary | First screen is container/binary | **Done** |
-| **D0.4** | CI release artifacts (linux amd64/arm64 binaries) | GitHub Release assets; checksums | Later |
+| **D0.4** | CI release artifacts (linux amd64/arm64 binaries) | GitHub Release assets; checksums | **Done** (amd64); arm64 when native runner |
 | **D0.5** | Publish image to GHCR on tag / `main` | `ghcr.io/carvalhosauro/hound:<tag>` pullable | **Done** (set package Public once) |
 
 ```bash
@@ -187,7 +188,7 @@ framing and the gaps that had no home.
 | ID | Delivery | Done when | Status |
 |----|----------|-----------|--------|
 | **D7.1** | HTTP compatibility policy + OpenAPI checked in | Short `docs/compat.md` (or README section): what is stable, how breaks ship; OpenAPI linked (**D1.2** / **D5.0**) | **Done** — [`compat.md`](compat.md), [`openapi.yaml`](openapi.yaml) |
-| **D7.2** | Release hygiene | Semver tags (`vX.Y.Z`); `CHANGELOG.md` (or GitHub Release notes) for each tag; GHCR `:latest` only from tags; optional binaries (**D0.4**) | Later |
+| **D7.2** | Release hygiene | Semver tags (`vX.Y.Z`); `CHANGELOG.md` (or GitHub Release notes) for each tag; GHCR `:latest` only from tags; optional binaries (**D0.4**) | **Done** — [`release.md`](release.md), [`CHANGELOG.md`](../CHANGELOG.md), `release.yml` |
 | **D7.3** | Threat model + auth stance | Trusted-network doc: bind defaults, no auth MVP, what to put in front (**D4.4**); token only if demanded | Later |
 | **D7.4** | Operator predictability | Error catalog (**D1.4**); richer `/health` (`size`, version, publish mode) (**D4.3**); snapshot durability expectations already in [`snapshot.md`](snapshot.md) | Later |
 | **D7.5** | External evidence (dogfood) | One public write-up or issue: real-shaped (still synthetic OK) corpus size, RSS, sync pattern used, “would / would not use again” — not a marketing post | Later |
@@ -196,7 +197,8 @@ framing and the gaps that had no home.
 **Done already (counts toward maturity, not re-listed as open work):** Docker/GHCR front
 door (**D0**), progressive README (**D1.1**), hydrate + sync A/B + snapshot (**D1.3**,
 **D2**), graduate checklist (**D3**), search-params guide (**D4.2**), HTTP compat +
-OpenAPI (**D7.1** / **D1.2** / **D5.0**).
+OpenAPI (**D7.1** / **D1.2** / **D5.0**), release hygiene + amd64 binary (**D7.2** /
+**D0.4**).
 
 **Explicitly not maturity milestones:** multi-arch until a native arm runner exists;
 SDKs beyond one thin client; CDC/Kafka in-core; becoming “default search” culturally.
@@ -219,13 +221,12 @@ not a roadmap target).
 
 ## Suggested ship order (next slices)
 
-1. **D7.2** — semver Release notes + optional **D0.4** binaries  
-2. **D7.3** / **D4.4** — trusted-network threat model (doc)  
-3. **D7.4** — error catalog + richer `/health` (**D1.4**, **D4.3**)  
-4. **D7.6** — short CONTRIBUTING (**D6.3**)  
-5. **D7.5** — dogfood write-up when there is something real to say  
-6. **D4.1** — optional `fields=id` (**G1**) only if a client asks  
-7. **D5.2** — one thin hand-written client (after real demand)  
+1. **D7.3** / **D4.4** — trusted-network threat model (doc)  
+2. **D7.4** — error catalog + richer `/health` (**D1.4**, **D4.3**)  
+3. **D7.6** — short CONTRIBUTING (**D6.3**)  
+4. **D7.5** — dogfood write-up when there is something real to say  
+5. **D4.1** — optional `fields=id` (**G1**) only if a client asks  
+6. **D5.2** — one thin hand-written client (after real demand)  
 
 Perf/structure work stays in [`REFINEMENT.md`](REFINEMENT.md) (F/H/G). Do not block DX
 on ART or attrs unless a recipe needs them.
@@ -243,6 +244,15 @@ on ART or attrs unless a recipe needs them.
 ---
 
 ## Changelog (DX)
+
+### 2026-07-27 — Release hygiene (D7.2 / D0.4)
+
+- Added [`CHANGELOG.md`](../CHANGELOG.md) and [`release.md`](release.md) (semver
+  tags, checklist, pin guidance).
+- Confirmed GHCR `:latest` only on `v*` (documented); `:main` stays tip-of-tree.
+- Added `.github/workflows/release.yml`: GitHub Release + `hound-*-linux-amd64`
+  + `SHA256SUMS` (arm64 deferred to native runner).
+- Marked **D7.2** / **D0.4** Done; next slice **D7.3**.
 
 ### 2026-07-27 — HTTP compatibility + OpenAPI (D7.1 / D1.2 / D5.0)
 

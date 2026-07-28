@@ -29,9 +29,10 @@ version bump (`vN` → `vN+1`) and a clear note in the release / changelog.
 - **PATCH** — fixes, docs, perf, internal fuzzy/backend defaults that do not
   change the wire contract.
 
-Until the first numbered `vX.Y.Z` release with a changelog, treat `main` /
-`:latest` as **pre-1.0**: still aim not to break the table above without a
-loud note, but the formal gate is “document the break.”
+Until the first numbered `vX.Y.Z` release with a changelog entry, treat
+`main` / GHCR `:main` as **pre-1.0**: still aim not to break the table above
+without a loud note, but the formal gate is “document the break.” How to cut a
+tag: [`release.md`](release.md). `:latest` is published **only** from `v*` tags.
 
 ---
 
