@@ -71,7 +71,7 @@ not a DX milestone). Roadmap **D7** tracks maturity only.
 | Auth | None (trusted network) — [`threat-model.md`](threat-model.md) | Token only if demanded |
 | SDKs | curl only | Optional thin clients after OpenAPI (**D5.2**) |
 | Graduate path | Checklist + field mapping | — |
-| Release hygiene | Semver tags + CHANGELOG + `:latest` only on `v*` + amd64 binary | First `v0.1.0` tag when ready ([`release.md`](release.md)) |
+| Release hygiene | Semver tags + CHANGELOG + `:latest` only on `v*` + amd64 binary | **v0.1.0** cut process: [`release.md`](release.md) |
 | API contract | OpenAPI + [`compat.md`](compat.md) | Keep OpenAPI in sync with `http_api.hpp` |
 | Production evidence | Synthetic benches + local demos | External / dogfood write-up (**D7.5**) |
 | Advanced knobs | Behind README Advanced | Keep |
@@ -247,6 +247,11 @@ on ART or attrs unless a recipe needs them.
 ---
 
 ## Changelog (DX)
+
+### 2026-07-27 — v0.1.0 release
+
+- Moved Unreleased notes into `CHANGELOG.md` **[0.1.0]**; cut tag `v0.1.0`
+  (GHCR `:latest` + GitHub Release via CI).
 
 ### 2026-07-27 — CONTRIBUTING (D7.6 / D6.3 / D1.5)
 

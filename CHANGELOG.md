@@ -8,6 +8,12 @@ versioning follows [SemVer](https://semver.org/) as described in
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-07-27
+
+First numbered MVP release: fuzzy autocomplete sidecar with external score,
+Docker/GHCR front door, sync/graduate docs, and maturity track (compat, OpenAPI,
+release hygiene, threat model, richer `/health`, CONTRIBUTING).
+
 ### Added
 
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — build, when to run what, PR checklist
@@ -26,12 +32,13 @@ versioning follows [SemVer](https://semver.org/) as described in
 - Sync / hydrate / graduate / search-params / snapshot guides + synthetic demos.
 - Progressive README (Quick start → Advanced); Docker Compose demo; GHCR publish
   on `main` (`:main`) and `v*` tags (`:latest` + semver).
+- Core: SymSpell default fuzzy backend, adaptive edit distance, pluggable
+  rankers (`linear` / `tie_break`), opt-in publish-swap + consolidate-ms.
 
 ### Changed
 
 - Default fuzzy backend remains SymSpell; BK via `--fuzzy-backend bk`.
 - `GET /health` JSON gains additive fields (clients must ignore unknowns).
 
-When cutting `vX.Y.Z`, move the notes above into a new
-`## [X.Y.Z] — YYYY-MM-DD` section (see [`docs/release.md`](docs/release.md)).
-Until the first tag, prefer GHCR `:main` or a commit SHA for pinning.
+[Unreleased]: https://github.com/carvalhosauro/hound/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/carvalhosauro/hound/releases/tag/v0.1.0
