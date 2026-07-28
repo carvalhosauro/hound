@@ -37,6 +37,10 @@ paths:
                 $ref: "#/components/schemas/HealthOk"
               example:
                 status: ok
+                version: "0.1.0"
+                size: 2
+                publish_mode: legacy
+                consolidate_ms: 0
 
   /index:
     post:
@@ -209,12 +213,28 @@ components:
   schemas:
     HealthOk:
       type: object
-      required: [status]
-      additionalProperties: false
+      required: [status, version, size, publish_mode, consolidate_ms]
+      additionalProperties: true
       properties:
         status:
           type: string
           enum: [ok]
+        version:
+          type: string
+          description: Build version (CMake PROJECT_VERSION)
+        size:
+          type: integer
+          minimum: 0
+          description: Documents visible to search
+        publish_mode:
+          type: string
+          enum: [legacy, publish_swap]
+        consolidate_ms:
+          type: integer
+          minimum: 0
+          description: |
+            Background publish interval in ms when publish_swap; 0 means publish
+            each write (or unused in legacy).
 
     Ok:
       type: object

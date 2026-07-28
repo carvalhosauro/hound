@@ -10,6 +10,9 @@ versioning follows [SemVer](https://semver.org/) as described in
 
 ### Added
 
+- Operator predictability: richer `/health` (`version`, `size`, `publish_mode`,
+  `consolidate_ms`) and [`docs/errors.md`](docs/errors.md) — DX **D7.4** /
+  **D1.4** / **D4.3**.
 - Trusted-network threat model ([`docs/threat-model.md`](docs/threat-model.md)) —
   DX **D7.3** / **D4.4**.
 - Release hygiene: [`docs/release.md`](docs/release.md), root `CHANGELOG.md`,
@@ -25,6 +28,7 @@ versioning follows [SemVer](https://semver.org/) as described in
 ### Changed
 
 - Default fuzzy backend remains SymSpell; BK via `--fuzzy-backend bk`.
+- `GET /health` JSON gains additive fields (clients must ignore unknowns).
 
 When cutting `vX.Y.Z`, move the notes above into a new
 `## [X.Y.Z] — YYYY-MM-DD` section (see [`docs/release.md`](docs/release.md)).

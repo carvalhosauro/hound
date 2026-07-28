@@ -46,6 +46,9 @@ target_link_libraries(hound_core INTERFACE
   nlohmann_json::nlohmann_json
   Threads::Threads
 )
+target_compile_definitions(hound_core INTERFACE
+  HOUND_VERSION="${PROJECT_VERSION}"
+)
 
 add_executable(hound src/main.cpp)
 target_link_libraries(hound PRIVATE hound_core)

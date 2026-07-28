@@ -12,6 +12,7 @@
 #include "hound/bulk_loader.hpp"
 #include "hound/fuzzy_index.hpp"
 #include "hound/snapshot.hpp"
+#include "hound/version.hpp"
 
 namespace hound {
 
@@ -34,8 +35,15 @@ class HttpApi {
 
  private:
   void setup_routes() {
-    server_.Get("/health", [](const httplib::Request&, httplib::Response& res) {
-      res.set_content(R"({"status":"ok"})", "application/json");
+    server_.Get("/health", [this](const httplib::Request&, httplib::Response& res) {
+      const char* mode =
+          index_.publish_mode() == PublishMode::PublishSwap ? "publish_swap" : "legacy";
+      nlohmann::json out{{"status", "ok"},
+                         {"version", version_string()},
+                         {"size", index_.size()},
+                         {"publish_mode", mode},
+                         {"consolidate_ms", index_.consolidate_ms().count()}};
+      res.set_content(out.dump(), "application/json");
     });
 
     server_.Post("/index", [this](const httplib::Request& req, httplib::Response& res) {

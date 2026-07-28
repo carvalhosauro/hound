@@ -31,6 +31,15 @@ TEST_CASE("HTTP search integration", "[integration][http]") {
   auto health = client.Get("/health");
   REQUIRE(health);
   REQUIRE(health->status == 200);
+  {
+    auto hj = nlohmann::json::parse(health->body);
+    REQUIRE(hj.at("status") == "ok");
+    REQUIRE(hj.contains("version"));
+    REQUIRE(hj.at("version").get<std::string>().size() > 0);
+    REQUIRE(hj.at("size").get<std::size_t>() == 2);
+    REQUIRE(hj.at("publish_mode") == "legacy");
+    REQUIRE(hj.at("consolidate_ms").get<long long>() == 0);
+  }
 
   auto indexed = client.Post("/index", R"({"id":"3","text":"Harper Hill","external_score":5})",
                              "application/json");

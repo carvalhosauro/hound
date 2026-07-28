@@ -17,6 +17,7 @@ version bump (`vN` → `vN+1`) and a clear note in the release / changelog.
 | Document JSON | `id` (string), `text` (string), `external_score` (number, default `0`) |
 | Search response envelope | `{ "results": [ { "id", "score", "text_relevance", "external_score" } ] }` |
 | Search query params | `q` (required), `limit`, `alpha`, `max_edit_distance`, `ranker` |
+| Health | `status` is stable; additive keys (`version`, `size`, `publish_mode`, …) are MINOR |
 | Success / error shapes | Success uses `ok` / `status` / `results` as today; errors use `{ "error": string }` with HTTP 4xx |
 | Idempotent upserts | Same `id` replaces; bulk is an array of documents |
 

@@ -25,6 +25,7 @@ Related: product/perf roadmap in [`REFINEMENT.md`](REFINEMENT.md), design in
 | OpenAPI (machine-readable) | [`openapi.yaml`](openapi.yaml) |
 | Cut a release | [`release.md`](release.md) · [`CHANGELOG.md`](../CHANGELOG.md) |
 | Threat model / auth stance | [`threat-model.md`](threat-model.md) |
+| Error catalog + `/health` fields | [`errors.md`](errors.md) |
 
 Synthetic demos (need a running Hound):
 
@@ -116,7 +117,7 @@ curl -s 'http://127.0.0.1:8080/search?q=ada%20ash&limit=5'
 | **D1.1** | Split README: Quick start · Mental model · API · Advanced · Graduate | New user never hits SymSpell before first search | **Done** |
 | **D1.2** | OpenAPI (or equivalent) for HTTP surface | Machine-readable; linked from README | **Done** — [`openapi.yaml`](openapi.yaml) |
 | **D1.3** | “Hydrate pattern” cookbook (SQL `WHERE id IN (…)`) | Copy-paste for Postgres + MySQL | **Done** — [`hydrate.md`](hydrate.md) |
-| **D1.4** | Error catalog (HTTP 4xx/5xx + CLI exit codes) | Predictable ops debugging | Later |
+| **D1.4** | Error catalog (HTTP 4xx/5xx + CLI exit codes) | Predictable ops debugging | **Done** — [`errors.md`](errors.md) |
 | **D1.5** | Contributor DX: link `AGENTS.md` + “what to run when” table stays current | PRs don’t guess benches | Later |
 
 ### D2 — Sync recipes (RDBMS → Hound) ✅
@@ -150,7 +151,7 @@ Out of scope until demanded: Kafka/Rabbit/CDC **inside** Hound (bus stays outsid
 |----|----------|-----------|--------|
 | **D4.1** | Optional `fields=id` projection (**G1**) | Default JSON unchanged | Later |
 | **D4.2** | Consistent `/search` query-param docs + flag trade-offs | All knobs in one table | **Done** — [`search-params.md`](search-params.md) |
-| **D4.3** | Health richer? (`size`, version, publish mode) — keep cheap | Ops-friendly without leaking internals | Later |
+| **D4.3** | Health richer? (`size`, version, publish mode) — keep cheap | Ops-friendly without leaking internals | **Done** — `/health` + [`errors.md`](errors.md) |
 | **D4.4** | Trusted-network auth story (doc first; token later if needed) | Explicit non-goals for MVP | **Done** — [`threat-model.md`](threat-model.md) |
 
 ### D5 — Client DX (optional)
@@ -191,7 +192,7 @@ framing and the gaps that had no home.
 | **D7.1** | HTTP compatibility policy + OpenAPI checked in | Short `docs/compat.md` (or README section): what is stable, how breaks ship; OpenAPI linked (**D1.2** / **D5.0**) | **Done** — [`compat.md`](compat.md), [`openapi.yaml`](openapi.yaml) |
 | **D7.2** | Release hygiene | Semver tags (`vX.Y.Z`); `CHANGELOG.md` (or GitHub Release notes) for each tag; GHCR `:latest` only from tags; optional binaries (**D0.4**) | **Done** — [`release.md`](release.md), [`CHANGELOG.md`](../CHANGELOG.md), `release.yml` |
 | **D7.3** | Threat model + auth stance | Trusted-network doc: bind defaults, no auth MVP, what to put in front (**D4.4**); token only if demanded | **Done** — [`threat-model.md`](threat-model.md) |
-| **D7.4** | Operator predictability | Error catalog (**D1.4**); richer `/health` (`size`, version, publish mode) (**D4.3**); snapshot durability expectations already in [`snapshot.md`](snapshot.md) | Later |
+| **D7.4** | Operator predictability | Error catalog (**D1.4**); richer `/health` (`size`, version, publish mode) (**D4.3**); snapshot durability expectations already in [`snapshot.md`](snapshot.md) | **Done** — [`errors.md`](errors.md) |
 | **D7.5** | External evidence (dogfood) | One public write-up or issue: real-shaped (still synthetic OK) corpus size, RSS, sync pattern used, “would / would not use again” — not a marketing post | Later |
 | **D7.6** | Maintainer path | Short `CONTRIBUTING.md` (**D6.3**): build, `run_correctness`, when to micro/macro | Later |
 
@@ -199,7 +200,8 @@ framing and the gaps that had no home.
 door (**D0**), progressive README (**D1.1**), hydrate + sync A/B + snapshot (**D1.3**,
 **D2**), graduate checklist (**D3**), search-params guide (**D4.2**), HTTP compat +
 OpenAPI (**D7.1** / **D1.2** / **D5.0**), release hygiene + amd64 binary (**D7.2** /
-**D0.4**), trusted-network threat model (**D7.3** / **D4.4**).
+**D0.4**), trusted-network threat model (**D7.3** / **D4.4**), operator
+predictability — errors + richer `/health` (**D7.4** / **D1.4** / **D4.3**).
 
 **Explicitly not maturity milestones:** multi-arch until a native arm runner exists;
 SDKs beyond one thin client; CDC/Kafka in-core; becoming “default search” culturally.
@@ -222,11 +224,11 @@ not a roadmap target).
 
 ## Suggested ship order (next slices)
 
-1. **D7.4** — error catalog + richer `/health` (**D1.4**, **D4.3**)  
-2. **D7.6** — short CONTRIBUTING (**D6.3**)  
-3. **D7.5** — dogfood write-up when there is something real to say  
-4. **D4.1** — optional `fields=id` (**G1**) only if a client asks  
-5. **D5.2** — one thin hand-written client (after real demand)  
+1. **D7.6** — short CONTRIBUTING (**D6.3**)  
+2. **D7.5** — dogfood write-up when there is something real to say  
+3. **D4.1** — optional `fields=id` (**G1**) only if a client asks  
+4. **D5.2** — one thin hand-written client (after real demand)  
+5. **D1.5** — keep AGENTS / “what to run when” current (ongoing with PRs)  
 
 Perf/structure work stays in [`REFINEMENT.md`](REFINEMENT.md) (F/H/G). Do not block DX
 on ART or attrs unless a recipe needs them.
@@ -244,6 +246,14 @@ on ART or attrs unless a recipe needs them.
 ---
 
 ## Changelog (DX)
+
+### 2026-07-27 — Operator predictability (D7.4 / D1.4 / D4.3)
+
+- Richer `GET /health`: `version`, `size`, `publish_mode`, `consolidate_ms`
+  (additive; `status` unchanged).
+- Added [`errors.md`](errors.md) HTTP + CLI exit catalog; OpenAPI `HealthOk`
+  updated.
+- Marked **D7.4**, **D1.4**, **D4.3** Done; next **D7.6** CONTRIBUTING.
 
 ### 2026-07-27 — Trusted-network threat model (D7.3 / D4.4)
 
