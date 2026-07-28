@@ -3,6 +3,8 @@
 One-page reference for `GET /search` query params and process knobs that change
 ranking, fuzzy cost, or concurrency. Roadmap id **D4.2**.
 
+Wire contract: [`openapi.yaml`](openapi.yaml). Stability rules: [`compat.md`](compat.md).
+
 Happy path stays: omit most knobs. Defaults are fine for autocomplete + hydrate.
 
 ---

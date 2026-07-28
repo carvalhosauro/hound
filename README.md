@@ -95,6 +95,9 @@ id,text,external_score
 
 No auth in the MVP — bind to a trusted network.
 
+**Contract:** OpenAPI [`docs/openapi.yaml`](docs/openapi.yaml) · compatibility
+[`docs/compat.md`](docs/compat.md).
+
 **`GET /search` knobs** (defaults, use cases, trade-offs):
 [`docs/search-params.md`](docs/search-params.md). Process flags
 (`--fuzzy-backend`, `--publish-swap`, …) are on the same page.
@@ -114,7 +117,7 @@ explicit (or rebuild from a full export).
 | Snapshot across restarts | [`docs/snapshot.md`](docs/snapshot.md) |
 | Hydrate ids → SQL | [`docs/hydrate.md`](docs/hydrate.md) |
 
-Roadmap index: [`docs/DX.md`](docs/DX.md).
+Roadmap index: [`docs/DX.md`](docs/DX.md) (install → sync → graduate → **maturity / D7**).
 
 ---
 
@@ -197,7 +200,9 @@ Profiling: [benchmarks/profiling/README.md](benchmarks/profiling/README.md).
 
 | Doc | What |
 |-----|------|
-| [docs/DX.md](docs/DX.md) | Install / docs / sync / graduate DX roadmap |
+| [docs/DX.md](docs/DX.md) | Install / docs / sync / graduate / maturity (D7) DX roadmap |
+| [docs/openapi.yaml](docs/openapi.yaml) | Machine-readable HTTP API (OpenAPI 3) |
+| [docs/compat.md](docs/compat.md) | HTTP compatibility / semver intent |
 | [docs/sync-reload.md](docs/sync-reload.md) | Sync pattern A (full reload) |
 | [docs/sync-writethrough.md](docs/sync-writethrough.md) | Sync pattern B (write-through) |
 | [docs/hydrate.md](docs/hydrate.md) | Hydrate ranked ids from SQL |

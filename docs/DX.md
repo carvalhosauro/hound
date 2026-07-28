@@ -2,7 +2,8 @@
 
 Living plan for **developer experience** and **operator experience**: make Hound
 the easy, low-resource **front door** to search, with a clear path to graduate
-to Meilisearch / Elasticsearch when product needs grow.
+to Meilisearch / Elasticsearch when product needs grow — and a **maturity** track
+(predictable releases / stable contract) so the front door is trustworthy.
 
 Related: product/perf roadmap in [`REFINEMENT.md`](REFINEMENT.md), design in
 [`PLANO.md`](PLANO.md). Contributor build rules: [`AGENTS.md`](../AGENTS.md).
@@ -20,6 +21,8 @@ Related: product/perf roadmap in [`REFINEMENT.md`](REFINEMENT.md), design in
 | Hydrate ids → SQL rows | [`hydrate.md`](hydrate.md) |
 | `/search` params + process flags | [`search-params.md`](search-params.md) |
 | When / how to leave Hound | [`graduate.md`](graduate.md) |
+| HTTP compatibility | [`compat.md`](compat.md) |
+| OpenAPI (machine-readable) | [`openapi.yaml`](openapi.yaml) |
 
 Synthetic demos (need a running Hound):
 
@@ -55,17 +58,17 @@ not a DX milestone). Roadmap **D7** tracks maturity only.
 | Area | Today | Gap vs premise |
 |------|-------|----------------|
 | Mental model | Strong — 3 fields, hydrate pattern | Keep |
-| HTTP API | Small (`/health`, `/index`, `/search`, bulk, delete) | OpenAPI later (**D1.2**) |
+| HTTP API | Small (`/health`, `/index`, `/search`, bulk, delete) | OpenAPI shipped (**D1.2**) |
 | Local start | Docker / GHCR first; CMake secondary | Package Public after first GHCR push |
 | Docker / releases | Dockerfile + compose + GHCR workflow | Multi-arch; optional binary releases (**D0.4**) |
 | Sync from DB | Recipes **A** / **B** + snapshot + demos | CDC/bus templates only if demanded |
 | Search / flags docs | [`search-params.md`](search-params.md) | — |
 | Hydrate | Postgres + MySQL cookbook | — |
 | Auth | None (trusted network) | Threat model doc (**D4.4** / **D7.3**) |
-| SDKs | curl only | Optional thin clients after OpenAPI |
+| SDKs | curl only | Optional thin clients after OpenAPI (**D5.2**) |
 | Graduate path | Checklist + field mapping | — |
-| Release hygiene | GHCR on `main` / `v*`; no binary assets yet | Semver policy + changelog + **D0.4** (**D7**) |
-| API contract | Small HTTP surface; no OpenAPI | OpenAPI + compatibility notes (**D7.1**) |
+| Release hygiene | GHCR on `main` / `v*`; no binary assets yet | Semver policy + changelog + **D0.4** (**D7.2**) |
+| API contract | OpenAPI + [`compat.md`](compat.md) | Keep OpenAPI in sync with `http_api.hpp` |
 | Production evidence | Synthetic benches + local demos | External / dogfood write-up (**D7.5**) |
 | Advanced knobs | Behind README Advanced | Keep |
 
@@ -109,7 +112,7 @@ curl -s 'http://127.0.0.1:8080/search?q=ada%20ash&limit=5'
 | ID | Delivery | Done when | Status |
 |----|----------|-----------|--------|
 | **D1.1** | Split README: Quick start · Mental model · API · Advanced · Graduate | New user never hits SymSpell before first search | **Done** |
-| **D1.2** | OpenAPI (or equivalent) for HTTP surface | Machine-readable; linked from README | Later |
+| **D1.2** | OpenAPI (or equivalent) for HTTP surface | Machine-readable; linked from README | **Done** — [`openapi.yaml`](openapi.yaml) |
 | **D1.3** | “Hydrate pattern” cookbook (SQL `WHERE id IN (…)`) | Copy-paste for Postgres + MySQL | **Done** — [`hydrate.md`](hydrate.md) |
 | **D1.4** | Error catalog (HTTP 4xx/5xx + CLI exit codes) | Predictable ops debugging | Later |
 | **D1.5** | Contributor DX: link `AGENTS.md` + “what to run when” table stays current | PRs don’t guess benches | Later |
@@ -152,7 +155,7 @@ Out of scope until demanded: Kafka/Rabbit/CDC **inside** Hound (bus stays outsid
 
 | ID | Delivery | Done when | Status |
 |----|----------|-----------|--------|
-| **D5.0** | Publish OpenAPI for HTTP (blocks serious codegen) | Spec checked in; linked from README | Later |
+| **D5.0** | Publish OpenAPI for HTTP (blocks serious codegen) | Spec checked in; linked from README | **Done** — [`openapi.yaml`](openapi.yaml) |
 | **D5.1** | Official curl cookbook (bash) | Cover upsert/search/bulk/delete | Later |
 | **D5.2** | Thin typed client (pick **one**: JS or Python), **hand-written** | `clients/` or npm/PyPI; mirrors OpenAPI | Later |
 | **D5.3** | Optional codegen experiment | Only if D5.2 maintenance hurts | Later |
@@ -183,7 +186,7 @@ framing and the gaps that had no home.
 
 | ID | Delivery | Done when | Status |
 |----|----------|-----------|--------|
-| **D7.1** | HTTP compatibility policy + OpenAPI checked in | Short `docs/compat.md` (or README section): what is stable, how breaks ship; OpenAPI linked (**D1.2** / **D5.0**) | Later |
+| **D7.1** | HTTP compatibility policy + OpenAPI checked in | Short `docs/compat.md` (or README section): what is stable, how breaks ship; OpenAPI linked (**D1.2** / **D5.0**) | **Done** — [`compat.md`](compat.md), [`openapi.yaml`](openapi.yaml) |
 | **D7.2** | Release hygiene | Semver tags (`vX.Y.Z`); `CHANGELOG.md` (or GitHub Release notes) for each tag; GHCR `:latest` only from tags; optional binaries (**D0.4**) | Later |
 | **D7.3** | Threat model + auth stance | Trusted-network doc: bind defaults, no auth MVP, what to put in front (**D4.4**); token only if demanded | Later |
 | **D7.4** | Operator predictability | Error catalog (**D1.4**); richer `/health` (`size`, version, publish mode) (**D4.3**); snapshot durability expectations already in [`snapshot.md`](snapshot.md) | Later |
@@ -192,7 +195,8 @@ framing and the gaps that had no home.
 
 **Done already (counts toward maturity, not re-listed as open work):** Docker/GHCR front
 door (**D0**), progressive README (**D1.1**), hydrate + sync A/B + snapshot (**D1.3**,
-**D2**), graduate checklist (**D3**), search-params guide (**D4.2**).
+**D2**), graduate checklist (**D3**), search-params guide (**D4.2**), HTTP compat +
+OpenAPI (**D7.1** / **D1.2** / **D5.0**).
 
 **Explicitly not maturity milestones:** multi-arch until a native arm runner exists;
 SDKs beyond one thin client; CDC/Kafka in-core; becoming “default search” culturally.
@@ -215,13 +219,13 @@ not a roadmap target).
 
 ## Suggested ship order (next slices)
 
-1. **D7.1** — compatibility policy + OpenAPI (**D1.2** / **D5.0**)  
-2. **D7.2** — semver Release notes + optional **D0.4** binaries  
-3. **D7.3** / **D4.4** — trusted-network threat model (doc)  
-4. **D7.4** — error catalog + richer `/health` (**D1.4**, **D4.3**)  
-5. **D7.6** — short CONTRIBUTING (**D6.3**)  
-6. **D7.5** — dogfood write-up when there is something real to say  
-7. **D4.1** — optional `fields=id` (**G1**) only if a client asks  
+1. **D7.2** — semver Release notes + optional **D0.4** binaries  
+2. **D7.3** / **D4.4** — trusted-network threat model (doc)  
+3. **D7.4** — error catalog + richer `/health` (**D1.4**, **D4.3**)  
+4. **D7.6** — short CONTRIBUTING (**D6.3**)  
+5. **D7.5** — dogfood write-up when there is something real to say  
+6. **D4.1** — optional `fields=id` (**G1**) only if a client asks  
+7. **D5.2** — one thin hand-written client (after real demand)  
 
 Perf/structure work stays in [`REFINEMENT.md`](REFINEMENT.md) (F/H/G). Do not block DX
 on ART or attrs unless a recipe needs them.
@@ -239,6 +243,13 @@ on ART or attrs unless a recipe needs them.
 ---
 
 ## Changelog (DX)
+
+### 2026-07-27 — HTTP compatibility + OpenAPI (D7.1 / D1.2 / D5.0)
+
+- Added [`compat.md`](compat.md): stable surface, semver intent, how breaks ship.
+- Added [`openapi.yaml`](openapi.yaml) for the five public routes; linked from
+  README + Docs table + search-params.
+- Marked **D7.1**, **D1.2**, **D5.0** Done; next slice **D7.2**.
 
 ### 2026-07-26 — Product maturity track (D7)
 

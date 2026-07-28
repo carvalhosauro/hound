@@ -1,0 +1,294 @@
+openapi: 3.0.3
+info:
+  title: Hound HTTP API
+  description: |
+    Lightweight C++ sidecar: fuzzy autocomplete + merge with an external score.
+    Returns ranked `{ id, score, text_relevance, external_score }` — the RDBMS
+    remains source of truth; hydrate rows in the app.
+
+    Compatibility policy: [compat.md](compat.md).
+    Search knobs: [search-params.md](search-params.md).
+  version: 0.1.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://127.0.0.1:8080
+    description: Default local bind (`--host` / `--port`)
+
+tags:
+  - name: health
+  - name: index
+  - name: search
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness
+      operationId: getHealth
+      responses:
+        "200":
+          description: Process is serving
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthOk"
+              example:
+                status: ok
+
+  /index:
+    post:
+      tags: [index]
+      summary: Upsert one document
+      description: |
+        Idempotent by `id`. Same id replaces text and external_score.
+        If `--snapshot` is set, persists after the write.
+      operationId: upsertDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Document"
+            example:
+              id: "1"
+              text: Ada Ash
+              external_score: 10
+      responses:
+        "200":
+          description: Upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /index/bulk:
+    post:
+      tags: [index]
+      summary: Upsert a JSON array of documents
+      description: |
+        Body must be a JSON array. Each item follows Document.
+        Response `count` is the number of documents processed.
+      operationId: upsertDocumentsBulk
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Document"
+            example:
+              - id: "1"
+                text: Ada Ash
+                external_score: 10
+              - id: "2"
+                text: Blake Brook
+                external_score: 3
+      responses:
+        "200":
+          description: Bulk upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkOk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /index/{id}:
+    delete:
+      tags: [index]
+      summary: Delete a document by id
+      operationId: deleteDocument
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: Document id (path segment after `/index/`)
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "404":
+          description: Id not present
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: not found
+
+  /search:
+    get:
+      tags: [search]
+      summary: Ranked search
+      description: |
+        Fuzzy + prefix candidates merged with `external_score`.
+        Defaults and trade-offs: search-params.md.
+        Process `--ranker` / `HOUND_RANKER` applies when `ranker` is omitted.
+      operationId: search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Query string (normalized internally)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 10
+          description: Max hits returned
+        - name: alpha
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+            default: 0.7
+          description: |
+            Weight on text relevance vs normalized external_score when
+            ranker=linear. Ignored by tie_break.
+        - name: max_edit_distance
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+          description: |
+            Cap on edit distance for fuzzy. Omit for adaptive length→distance
+            (0–2→0, 3–5→1, 6+→2).
+        - name: ranker
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [linear, tie_break, score_merger, tiebreak]
+          description: |
+            Per-query ranker override. Preferred values: `linear`, `tie_break`.
+            Aliases: `score_merger`→linear, `tiebreak`→tie_break.
+            Invalid value → 400.
+      responses:
+        "200":
+          description: Ranked hits (may be empty)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+              example:
+                results:
+                  - id: "1"
+                    score: 0.95
+                    text_relevance: 1.0
+                    external_score: 10.0
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+components:
+  responses:
+    BadRequest:
+      description: Bad request (missing q, invalid JSON, invalid ranker, etc.)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    HealthOk:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    Ok:
+      type: object
+      required: [ok]
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+
+    BulkOk:
+      type: object
+      required: [ok, count]
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        count:
+          type: integer
+          minimum: 0
+          description: Number of documents upserted in this request
+
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+
+    Document:
+      type: object
+      required: [id, text]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          description: Upsert key
+        text:
+          type: string
+          description: Indexed searchable text
+        external_score:
+          type: number
+          format: double
+          default: 0
+          description: Business / popularity score supplied by the app
+
+    SearchHit:
+      type: object
+      required: [id, score, text_relevance, external_score]
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        score:
+          type: number
+          format: double
+          description: |
+            linear — α-blend of text and normalized external.
+            tie_break — equals text_relevance (primary key).
+        text_relevance:
+          type: number
+          format: double
+        external_score:
+          type: number
+          format: double
+
+    SearchResponse:
+      type: object
+      required: [results]
+      additionalProperties: true
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchHit"

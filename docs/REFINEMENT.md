@@ -92,8 +92,8 @@ concurrency when RAM or immediate read-your-writes matters.
 
 ### Suggested next steps (pick one)
 
-1. **DX** — [`docs/DX.md`](DX.md): OpenAPI (**D1.2**), auth story (**D4.4**);
-   sync/graduate/hydrate/search-params guides shipped.
+1. **DX** — [`docs/DX.md`](DX.md): OpenAPI + compat (**D7.1** Done); next **D7.2**
+   release hygiene, then auth story (**D4.4** / **D7.3**).
 2. **Product** — **H0** filter-after POC in a consumer, or **H1** design spike
    when in-index attrs/filters are required.
 3. **Polish** — [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5) / **G1** `fields=id`.
@@ -1215,5 +1215,9 @@ graduating to Meili/ES (same push shape: id + searchable text + sort field).
 5. Revisit ART / contiguous layout only after a post-SymSpell profile (**F0→F1**).
 6. On-disk compressed postings if snapshot rebuild/RSS hurts (**F2**).
 7. Optional `fields=id` projection without removing score fields (**G1**).
-8. **DX / SDKs:** OpenAPI + thin clients per [`DX.md`](DX.md) D1.2 / D5 — prefer
-   hand-written thin client first; codegen only after a stable OpenAPI.
+8. **DX / SDKs:** OpenAPI shipped ([`openapi.yaml`](openapi.yaml) +
+   [`compat.md`](compat.md)); thin hand-written client (**D5.2**) only on demand —
+   codegen only after the surface grows.
+9. **Product maturity (not popularity):** [`DX.md`](DX.md) **D7** — **D7.1** Done;
+   remaining: release hygiene, threat model, operator predictability, dogfood,
+   CONTRIBUTING.
