@@ -81,7 +81,7 @@ one request.
 | `--consolidate-ms N` | Publish-swap + high write rate; amortize publish cost | Search (and snapshot saves) can lag ~N ms behind live upserts until consolidate/`prepare()` |
 | `--load` | Boot from export (pattern A) | Upserts into empty or snapshot-loaded index; orphans need restart or deletes — [`sync-reload.md`](sync-reload.md) |
 | `--snapshot` | Avoid full CSV import on every restart | Not a DB; recovery path is still export. Can lag under consolidate — [`snapshot.md`](snapshot.md) |
-| `--host` / `--port` | Container / systemd bind | `127.0.0.1` is safer on shared hosts; no auth in MVP |
+| `--host` / `--port` | Container / systemd bind | `127.0.0.1` is safer on shared hosts; no auth in MVP — [`threat-model.md`](threat-model.md) |
 
 ### Suggested combos
 

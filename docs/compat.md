@@ -68,8 +68,8 @@ not rely on undocumented aliases in long-lived clients — prefer
 ## Auth & network (stance)
 
 No authentication on the HTTP API today. Bind to a trusted network (or put a
-reverse proxy / mesh in front). Defaults and threat notes: roadmap **D4.4** /
-**D7.3** (doc first).
+reverse proxy / mesh in front). Full notes: [`threat-model.md`](threat-model.md)
+(**D7.3** / **D4.4**).
 
 ---
 

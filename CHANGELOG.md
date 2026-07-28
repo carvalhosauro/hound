@@ -10,6 +10,8 @@ versioning follows [SemVer](https://semver.org/) as described in
 
 ### Added
 
+- Trusted-network threat model ([`docs/threat-model.md`](docs/threat-model.md)) —
+  DX **D7.3** / **D4.4**.
 - Release hygiene: [`docs/release.md`](docs/release.md), root `CHANGELOG.md`,
   GitHub Release workflow with linux amd64 binary + checksums (DX **D7.2** /
   **D0.4**). GHCR `:latest` only from `v*` tags.

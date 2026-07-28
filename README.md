@@ -94,6 +94,7 @@ id,text,external_score
 ```
 
 No auth in the MVP — bind to a trusted network.
+Threat model: [`docs/threat-model.md`](docs/threat-model.md).
 
 **Contract:** OpenAPI [`docs/openapi.yaml`](docs/openapi.yaml) · compatibility
 [`docs/compat.md`](docs/compat.md).
@@ -203,6 +204,7 @@ Profiling: [benchmarks/profiling/README.md](benchmarks/profiling/README.md).
 | [docs/DX.md](docs/DX.md) | Install / docs / sync / graduate / maturity (D7) DX roadmap |
 | [docs/openapi.yaml](docs/openapi.yaml) | Machine-readable HTTP API (OpenAPI 3) |
 | [docs/compat.md](docs/compat.md) | HTTP compatibility / semver intent |
+| [docs/threat-model.md](docs/threat-model.md) | Trusted-network threat model / auth stance |
 | [docs/release.md](docs/release.md) | How to cut a semver release (GHCR + binary) |
 | [CHANGELOG.md](CHANGELOG.md) | Notable changes per version |
 | [docs/sync-reload.md](docs/sync-reload.md) | Sync pattern A (full reload) |

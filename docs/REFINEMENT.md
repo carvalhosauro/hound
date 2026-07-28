@@ -92,8 +92,8 @@ concurrency when RAM or immediate read-your-writes matters.
 
 ### Suggested next steps (pick one)
 
-1. **DX** — [`docs/DX.md`](DX.md): **D7.1**/**D7.2** Done; next threat model
-   (**D7.3** / **D4.4**), then operator predictability (**D7.4**).
+1. **DX** — [`docs/DX.md`](DX.md): **D7.1–D7.3** Done; next operator
+   predictability (**D7.4**: error catalog + richer `/health`).
 2. **Product** — **H0** filter-after POC in a consumer, or **H1** design spike
    when in-index attrs/filters are required.
 3. **Polish** — [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5) / **G1** `fields=id`.
@@ -1218,6 +1218,5 @@ graduating to Meili/ES (same push shape: id + searchable text + sort field).
 8. **DX / SDKs:** OpenAPI shipped ([`openapi.yaml`](openapi.yaml) +
    [`compat.md`](compat.md)); thin hand-written client (**D5.2**) only on demand —
    codegen only after the surface grows.
-9. **Product maturity (not popularity):** [`DX.md`](DX.md) **D7** — **D7.1**/
-   **D7.2** Done; remaining: threat model, operator predictability, dogfood,
-   CONTRIBUTING.
+9. **Product maturity (not popularity):** [`DX.md`](DX.md) **D7** — **D7.1–D7.3**
+   Done; remaining: operator predictability, dogfood, CONTRIBUTING.
