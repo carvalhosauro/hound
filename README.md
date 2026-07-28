@@ -206,6 +206,7 @@ Profiling: [benchmarks/profiling/README.md](benchmarks/profiling/README.md).
 | [docs/compat.md](docs/compat.md) | HTTP compatibility / semver intent |
 | [docs/threat-model.md](docs/threat-model.md) | Trusted-network threat model / auth stance |
 | [docs/errors.md](docs/errors.md) | HTTP errors + CLI exit codes + `/health` fields |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Build, tests, PR checklist |
 | [docs/release.md](docs/release.md) | How to cut a semver release (GHCR + binary) |
 | [CHANGELOG.md](CHANGELOG.md) | Notable changes per version |
 | [docs/sync-reload.md](docs/sync-reload.md) | Sync pattern A (full reload) |
@@ -225,4 +226,5 @@ Core under `include/hound/` stays free of HTTP/CSV. API and ingest sit outside.
 
 MIT — [LICENSE](LICENSE).
 
-Star it if you’re escaping `LIKE`. PRs welcome if they keep the sidecar thin.
+Star it if you’re escaping `LIKE`. PRs welcome if they keep the sidecar thin —
+see [CONTRIBUTING.md](CONTRIBUTING.md).

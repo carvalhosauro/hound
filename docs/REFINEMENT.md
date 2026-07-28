@@ -92,8 +92,8 @@ concurrency when RAM or immediate read-your-writes matters.
 
 ### Suggested next steps (pick one)
 
-1. **DX** — [`docs/DX.md`](DX.md): **D7.1–D7.4** Done; next short CONTRIBUTING
-   (**D7.6** / **D6.3**), then dogfood (**D7.5**) when there is evidence.
+1. **DX** — [`docs/DX.md`](DX.md): maturity **D7.1–D7.4** + **D7.6** Done;
+   **D7.5** dogfood waits on real evidence. Optional: **D5** clients, **D4.1**.
 2. **Product** — **H0** filter-after POC in a consumer, or **H1** design spike
    when in-index attrs/filters are required.
 3. **Polish** — [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5) / **G1** `fields=id`.
@@ -1219,4 +1219,4 @@ graduating to Meili/ES (same push shape: id + searchable text + sort field).
    [`compat.md`](compat.md)); thin hand-written client (**D5.2**) only on demand —
    codegen only after the surface grows.
 9. **Product maturity (not popularity):** [`DX.md`](DX.md) **D7** — **D7.1–D7.4**
-   Done; remaining: dogfood (**D7.5**), CONTRIBUTING (**D7.6**).
+   + **D7.6** Done; remaining: dogfood write-up (**D7.5**).

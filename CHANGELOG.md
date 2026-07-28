@@ -10,6 +10,8 @@ versioning follows [SemVer](https://semver.org/) as described in
 
 ### Added
 
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — build, when to run what, PR checklist
+  (DX **D7.6** / **D6.3** / **D1.5**).
 - Operator predictability: richer `/health` (`version`, `size`, `publish_mode`,
   `consolidate_ms`) and [`docs/errors.md`](docs/errors.md) — DX **D7.4** /
   **D1.4** / **D4.3**.
