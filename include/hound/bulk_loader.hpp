@@ -204,6 +204,36 @@ inline std::size_t load_json_array(FuzzyIndex& index, const std::string& path) {
         }
         doc.external_score = std::stod(content.substr(start, i - start));
         have_score = true;
+      } else if (key == "attrs") {
+        skip_ws(i);
+        if (i >= content.size() || content[i] != '{') {
+          throw std::runtime_error("bulk: attrs must be an object");
+        }
+        ++i;
+        while (true) {
+          skip_ws(i);
+          if (i < content.size() && content[i] == '}') {
+            ++i;
+            break;
+          }
+          auto ak = parse_string(i);
+          if (ak.empty()) {
+            throw std::runtime_error("bulk: attrs key must be non-empty");
+          }
+          skip_ws(i);
+          if (i >= content.size() || content[i] != ':') {
+            throw std::runtime_error("bulk: expected ':'");
+          }
+          ++i;
+          skip_ws(i);
+          auto av = parse_string(i);
+          doc.attrs.emplace(std::move(ak), std::move(av));
+          skip_ws(i);
+          if (i < content.size() && content[i] == ',') {
+            ++i;
+            continue;
+          }
+        }
       } else {
         // skip unknown value (string or number)
         if (i < content.size() && content[i] == '"') {
