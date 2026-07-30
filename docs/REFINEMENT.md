@@ -516,6 +516,39 @@ Typesense-style lexicographic order (default Typesense
 
 ## Phase 2 — Changelog
 
+### 2026-07-30 — H1 attrs equality micro trade-offs (Task 5)
+
+```text
+Hypothesis: Attr postings on upsert and AND-equality filter on search add modest
+            cost vs no-attrs path; gate metrics (legacy names) stay within +10%.
+Primary metric(s):   BM_Insert/20000; BM_SearchFuzzy/20000/{1,2}
+Secondary metric(s): BM_InsertWithAttrs/20000; BM_SearchFuzzyFiltered/20000/{1,2}
+Commands: cmake --build build-bench -j2 --target hound_bench_micro;
+           hound_bench_micro → benchmarks/results/micro_20260730T041622Z.json;
+           compare_bench.py vs baselines/micro_baseline.json
+Correctness: N/A (bench-only)
+Micro gate:  pass — max delta BM_SearchFuzzy/20000/2 +5.5% vs baseline
+Decision:    ship — filter path ~2.6× fuzzy/2 at 20k; insert-with-attrs ~flat vs Insert/20k
+```
+
+| Metric | Unfiltered / no attrs | With attrs / filtered |
+|--------|----------------------|------------------------|
+| `BM_Insert/20000` | **1172 ms** (gate) | — |
+| `BM_InsertWithAttrs/20000` | — | **1147 ms** |
+| `BM_SearchFuzzy/20000/1` | **1.72 µs** (gate) | — |
+| `BM_SearchFuzzyFiltered/20000/1` | — | **11.5 µs** |
+| `BM_SearchFuzzy/20000/2` | **6.15 µs** (gate) | — |
+| `BM_SearchFuzzyFiltered/20000/2` | — | **16.3 µs** |
+
+- Baseline reference (versioned): Insert/20k ~1141 ms; Fuzzy/20k/1 ~1.70 µs;
+  Fuzzy/20k/2 ~5.82 µs (`baselines/micro_baseline.json`).
+- Insert with `tenant` attrs (64 values, `i % 64`) is within noise of plain Insert
+  on this run (~−2% cpu_time).
+- Filtered fuzzy (`attr_filters tenant="0"`, ~1/64 docs eligible) adds postings
+  intersection after fuzzy candidate generation: ~6.7× vs unfiltered at D=1,
+  ~2.6× at D=2 — expected (smaller eligible set does not skip SymSpell work).
+- Gate legacy names unchanged in `compare_bench`; new benches recorded here only.
+
 ### 2026-07-26 — Accept post-#1 micro baseline
 
 ```text
