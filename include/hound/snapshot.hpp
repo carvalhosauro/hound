@@ -97,7 +97,7 @@ inline double read_f64(std::istream& in) {
 }  // namespace detail
 
 inline constexpr std::uint32_t kSnapshotMagic = 0x484e4453;  // 'HNDS'
-inline constexpr std::uint32_t kSnapshotVersion = 1;
+inline constexpr std::uint32_t kSnapshotVersion = 2;
 
 inline void save_snapshot(const FuzzyIndex& index, const std::string& path) {
   std::ofstream out(path, std::ios::binary);
@@ -112,6 +112,11 @@ inline void save_snapshot(const FuzzyIndex& index, const std::string& path) {
     detail::write_string(out, doc.id);
     detail::write_string(out, doc.text);
     detail::write_f64(out, doc.external_score);
+    detail::write_u32(out, static_cast<std::uint32_t>(doc.attrs.size()));
+    for (const auto& [k, v] : doc.attrs) {
+      detail::write_string(out, k);
+      detail::write_string(out, v);
+    }
   }
   if (!out) {
     throw std::runtime_error("snapshot: write failed");
@@ -129,7 +134,8 @@ inline void load_snapshot(FuzzyIndex& index, const std::string& path) {
   }
   const auto version = detail::read_u32(in);
   if (version != kSnapshotVersion) {
-    throw std::runtime_error("snapshot: unsupported version");
+    throw std::runtime_error(
+        "snapshot: unsupported version (rebuild with --load / bulk; v1 not migrated)");
   }
   const auto count = detail::read_u64(in);
   index.clear();
@@ -138,6 +144,12 @@ inline void load_snapshot(FuzzyIndex& index, const std::string& path) {
     doc.id = detail::read_string(in);
     doc.text = detail::read_string(in);
     doc.external_score = detail::read_f64(in);
+    const auto attr_count = detail::read_u32(in);
+    for (std::uint32_t a = 0; a < attr_count; ++a) {
+      auto k = detail::read_string(in);
+      auto v = detail::read_string(in);
+      doc.attrs.emplace(std::move(k), std::move(v));
+    }
     index.upsert(std::move(doc));
   }
 }

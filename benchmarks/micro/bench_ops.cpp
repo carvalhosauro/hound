@@ -36,6 +36,25 @@ std::vector<hound::Document> docs_for(std::size_t n) {
   return hound::synth::generate_documents(cfg);
 }
 
+std::vector<hound::Document> docs_with_tenant_attrs(std::size_t n) {
+  auto docs = docs_for(n);
+  for (std::size_t i = 0; i < docs.size(); ++i) {
+    docs[i].attrs.emplace("tenant", std::to_string(i % 64));
+  }
+  return docs;
+}
+
+std::unique_ptr<hound::FuzzyIndex> build_index_with_attrs(std::size_t n) {
+  auto docs = docs_with_tenant_attrs(n);
+  auto index = std::make_unique<hound::FuzzyIndex>(
+      hound::make_fuzzy_backend(hound::fuzzy_backend_kind_from_env()));
+  for (const auto& d : docs) {
+    index->upsert(d);
+  }
+  index->prepare();
+  return index;
+}
+
 std::string typo_query(const hound::Document& doc, int distance) {
   std::mt19937_64 rng(kTypoSeed);
   return hound::synth::apply_typos(doc.text, distance, rng);
@@ -82,6 +101,37 @@ void BM_SearchFuzzy(benchmark::State& state) {
   }
 }
 
+void BM_InsertWithAttrs(benchmark::State& state) {
+  const auto n = static_cast<std::size_t>(state.range(0));
+  const auto docs = docs_with_tenant_attrs(n);
+  for (auto _ : state) {
+    state.PauseTiming();
+    hound::FuzzyIndex index(hound::make_fuzzy_backend(hound::fuzzy_backend_kind_from_env()));
+    state.ResumeTiming();
+    for (const auto& d : docs) {
+      index.upsert(d);
+    }
+    index.prepare();
+    benchmark::DoNotOptimize(index.size());
+  }
+  state.SetItemsProcessed(state.iterations() * static_cast<std::int64_t>(n));
+}
+
+void BM_SearchFuzzyFiltered(benchmark::State& state) {
+  const auto n = static_cast<std::size_t>(state.range(0));
+  const int distance = static_cast<int>(state.range(1));
+  auto docs = docs_with_tenant_attrs(n);
+  auto index = build_index_with_attrs(n);
+  const std::string q = typo_query(docs[n / 2], distance);
+  hound::SearchOptions opt{.limit = 10, .max_edit_distance = distance};
+  opt.attr_filters.emplace("tenant", "0");
+  for (auto _ : state) {
+    auto hits = index->search(q, opt);
+    benchmark::DoNotOptimize(hits.data());
+    benchmark::ClobberMemory();
+  }
+}
+
 void BM_ScoreMerge(benchmark::State& state) {
   const auto n = static_cast<std::size_t>(state.range(0));
   std::vector<hound::SearchHit> base;
@@ -118,5 +168,10 @@ BENCHMARK(BM_SearchFuzzy)
     ->Args({20000, 3})
     ->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_ScoreMerge)->Arg(64)->Arg(256)->Arg(1024)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_InsertWithAttrs)->Arg(20000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_SearchFuzzyFiltered)
+    ->Args({20000, 1})
+    ->Args({20000, 2})
+    ->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_MAIN();

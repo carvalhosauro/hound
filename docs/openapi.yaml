@@ -47,8 +47,9 @@ paths:
       tags: [index]
       summary: Upsert one document
       description: |
-        Idempotent by `id`. Same id replaces text and external_score.
-        If `--snapshot` is set, persists after the write.
+        Idempotent by `id`. Same id replaces text, external_score, and `attrs`
+        (when `attrs` is omitted, attrs for that id are cleared). If `--snapshot`
+        is set, persists after the write.
       operationId: upsertDocument
       requestBody:
         required: true
@@ -185,6 +186,18 @@ paths:
             Per-query ranker override. Preferred values: `linear`, `tie_break`.
             Aliases: `score_merger`→linear, `tiebreak`→tie_break.
             Invalid value → 400.
+        - name: attrs.<key>
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Equality filter on indexed document attrs. Repeat for each key with
+            the fixed prefix `attrs.` (AND across keys). Example query pair:
+            `attrs.establishment_id=17` and `attrs.open=1`. Omit all `attrs.*`
+            params for the same behavior as v0.1.0 (no attr filter). Duplicate
+            keys: last value wins (same as other search params).
+          example: "17"
       responses:
         "200":
           description: Ranked hits (may be empty)
@@ -282,6 +295,11 @@ components:
           format: double
           default: 0
           description: Business / popularity score supplied by the app
+        attrs:
+          type: object
+          additionalProperties:
+            type: string
+          description: Opaque string metadata; replaced wholesale on upsert
 
     SearchHit:
       type: object

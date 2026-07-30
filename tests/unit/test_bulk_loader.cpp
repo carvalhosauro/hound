@@ -38,3 +38,39 @@ TEST_CASE("load JSON bulk", "[bulk]") {
   REQUIRE(hits.front().id == "9");
   std::filesystem::remove(path);
 }
+
+TEST_CASE("load JSON bulk with attrs filters", "[bulk][attrs][h1]") {
+  const auto path = std::filesystem::temp_directory_path() / "hound_test_bulk_attrs.json";
+  {
+    std::ofstream out(path);
+    out << R"([
+  {"id":"1","text":"Alpha","external_score":1.0,"attrs":{"tenant":"a"}},
+  {"id":"2","text":"Alpha","external_score":2.0,"attrs":{"tenant":"b"}}
+])";
+  }
+  hound::FuzzyIndex idx;
+  REQUIRE(hound::load_json_array(idx, path.string()) == 2);
+  hound::SearchOptions opt{.limit = 5, .attr_filters = {{"tenant", "a"}}};
+  auto hits = idx.search("alpha", opt);
+  REQUIRE(hits.size() == 1);
+  REQUIRE(hits[0].id == "1");
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("load CSV bulk leaves attrs empty", "[bulk][attrs][h1]") {
+  const auto path = std::filesystem::temp_directory_path() / "hound_test_bulk_no_attrs.csv";
+  {
+    std::ofstream out(path);
+    out << "id,text,external_score\n";
+    out << "1,Ada Ash,10.5\n";
+  }
+  hound::FuzzyIndex idx;
+  REQUIRE(hound::load_csv(idx, path.string()) == 1);
+  REQUIRE_FALSE(idx.search("ada", {.limit = 5}).empty());
+  hound::SearchOptions filtered{.limit = 5, .attr_filters = {{"tenant", "a"}}};
+  REQUIRE(idx.search("ada", filtered).empty());
+  auto doc = idx.get("1");
+  REQUIRE(doc.has_value());
+  REQUIRE(doc->attrs.empty());
+  std::filesystem::remove(path);
+}

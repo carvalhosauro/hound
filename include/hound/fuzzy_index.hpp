@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -35,6 +36,8 @@ struct SearchOptions {
   std::size_t prefix_candidate_limit = 64;
   // nullopt → index-owned Ranker. Explicit → per-query override (Phase D3).
   std::optional<RankerKind> ranker;
+  // Empty = no filter (v0.1.0 path). Non-empty = AND equality on attrs.
+  std::map<std::string, std::string> attr_filters;
 };
 
 // Legacy = shared_mutex in-place (default). PublishSwap = copy→mutate→atomic publish (E2).
@@ -69,6 +72,10 @@ struct IndexState {
   std::unordered_map<std::string, Document> docs;
   Trie trie;
   std::unique_ptr<FuzzyBackend> fuzzy;
+  // key → value → ids
+  std::unordered_map<std::string,
+                     std::unordered_map<std::string, std::unordered_set<std::string>>>
+      attr_postings;
 
   IndexState() : fuzzy(make_default_fuzzy_backend()) {}
 
@@ -79,7 +86,10 @@ struct IndexState {
   }
 
   IndexState(const IndexState& other)
-      : docs(other.docs), trie(other.trie), fuzzy(other.fuzzy ? other.fuzzy->clone() : nullptr) {
+      : docs(other.docs),
+        trie(other.trie),
+        fuzzy(other.fuzzy ? other.fuzzy->clone() : nullptr),
+        attr_postings(other.attr_postings) {
     if (!fuzzy) {
       fuzzy = make_default_fuzzy_backend();
     }
@@ -90,6 +100,7 @@ struct IndexState {
       docs = other.docs;
       trie = other.trie;
       fuzzy = other.fuzzy ? other.fuzzy->clone() : make_default_fuzzy_backend();
+      attr_postings = other.attr_postings;
     }
     return *this;
   }
@@ -207,6 +218,7 @@ class FuzzyIndex {
       draft_.docs.clear();
       draft_.trie.clear();
       draft_.fuzzy->clear();
+      draft_.attr_postings.clear();
       publish_draft_unlocked();
       return;
     }
@@ -214,6 +226,7 @@ class FuzzyIndex {
     state_.docs.clear();
     state_.trie.clear();
     state_.fuzzy->clear();
+    state_.attr_postings.clear();
   }
 
   // Finish deferred fuzzy-index work (e.g. SymSpell delete map) after bulk load.
@@ -254,7 +267,44 @@ class FuzzyIndex {
     std::unordered_map<std::string, SearchHit> by_id;
 
     auto run_search = [&](const IndexState& st) {
+      std::optional<std::unordered_set<std::string>> eligible;
+      if (!opt.attr_filters.empty()) {
+        std::unordered_set<std::string> set;
+        bool first = true;
+        for (const auto& [key, value] : opt.attr_filters) {
+          auto kit = st.attr_postings.find(key);
+          if (kit == st.attr_postings.end()) {
+            set.clear();
+            break;
+          }
+          auto vit = kit->second.find(value);
+          if (vit == kit->second.end()) {
+            set.clear();
+            break;
+          }
+          if (first) {
+            set = vit->second;
+            first = false;
+          } else {
+            std::unordered_set<std::string> next;
+            for (const auto& id : set) {
+              if (vit->second.count(id)) {
+                next.insert(id);
+              }
+            }
+            set = std::move(next);
+          }
+          if (set.empty()) {
+            break;
+          }
+        }
+        eligible = std::move(set);
+      }
+
       auto consider = [&](const std::string& id, int distance, bool prefix_bonus) {
+        if (eligible && !eligible->count(id)) {
+          return;
+        }
         auto dit = st.docs.find(id);
         if (dit == st.docs.end()) {
           return;
@@ -366,14 +416,42 @@ class FuzzyIndex {
     }
   }
 
+  static void remove_attr_postings(IndexState& st, const Document& doc) {
+    for (const auto& [k, v] : doc.attrs) {
+      auto kit = st.attr_postings.find(k);
+      if (kit == st.attr_postings.end()) {
+        continue;
+      }
+      auto vit = kit->second.find(v);
+      if (vit == kit->second.end()) {
+        continue;
+      }
+      vit->second.erase(doc.id);
+      if (vit->second.empty()) {
+        kit->second.erase(vit);
+      }
+      if (kit->second.empty()) {
+        st.attr_postings.erase(kit);
+      }
+    }
+  }
+
+  static void insert_attr_postings(IndexState& st, const Document& doc) {
+    for (const auto& [k, v] : doc.attrs) {
+      st.attr_postings[k][v].insert(doc.id);
+    }
+  }
+
   static void apply_upsert(IndexState& st, Document doc, const std::string& normalized) {
     auto it = st.docs.find(doc.id);
     if (it != st.docs.end()) {
       const std::string old_norm = normalize(it->second.text);
       st.trie.erase(old_norm, doc.id);
       st.fuzzy->erase(old_norm, doc.id);
+      remove_attr_postings(st, it->second);
     }
     st.docs[doc.id] = doc;
+    insert_attr_postings(st, st.docs[doc.id]);
     if (!normalized.empty()) {
       st.trie.insert(normalized, doc.id);
       st.fuzzy->insert(normalized, doc.id);
@@ -388,6 +466,7 @@ class FuzzyIndex {
     const std::string norm = normalize(it->second.text);
     st.trie.erase(norm, id);
     st.fuzzy->erase(norm, id);
+    remove_attr_postings(st, it->second);
     st.docs.erase(it);
     return true;
   }

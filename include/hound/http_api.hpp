@@ -1,9 +1,11 @@
 #pragma once
 
 #include <algorithm>
+#include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #include <httplib.h>
@@ -15,6 +17,29 @@
 #include "hound/version.hpp"
 
 namespace hound {
+
+namespace {
+inline std::map<std::string, std::string> parse_attrs_object(const nlohmann::json& body) {
+  std::map<std::string, std::string> attrs;
+  if (!body.contains("attrs")) {
+    return attrs;
+  }
+  const auto& a = body.at("attrs");
+  if (!a.is_object()) {
+    throw std::runtime_error("attrs must be an object");
+  }
+  for (auto it = a.begin(); it != a.end(); ++it) {
+    if (it.key().empty()) {
+      throw std::runtime_error("attrs key must be non-empty");
+    }
+    if (!it.value().is_string()) {
+      throw std::runtime_error("attrs values must be strings");
+    }
+    attrs.emplace(it.key(), it.value().get<std::string>());
+  }
+  return attrs;
+}
+}  // namespace
 
 class HttpApi {
  public:
@@ -53,6 +78,7 @@ class HttpApi {
         doc.id = body.at("id").get<std::string>();
         doc.text = body.at("text").get<std::string>();
         doc.external_score = body.value("external_score", 0.0);
+        doc.attrs = parse_attrs_object(body);
         {
           std::lock_guard lock(mu_);
           index_.upsert(std::move(doc));
@@ -81,6 +107,7 @@ class HttpApi {
             doc.id = item.at("id").get<std::string>();
             doc.text = item.at("text").get<std::string>();
             doc.external_score = item.value("external_score", 0.0);
+            doc.attrs = parse_attrs_object(item);
             index_.upsert(std::move(doc));
             ++count;
           }
@@ -137,6 +164,17 @@ class HttpApi {
             throw std::runtime_error("invalid ranker (use linear or tie_break)");
           }
           opt.ranker = kind;
+        }
+        constexpr std::string_view kPrefix = "attrs.";
+        for (const auto& [key, value] : req.params) {
+          if (key.size() >= kPrefix.size() &&
+              std::string_view(key).substr(0, kPrefix.size()) == kPrefix) {
+            const std::string attr_key = key.substr(kPrefix.size());
+            if (attr_key.empty()) {
+              throw std::runtime_error("attrs key must be non-empty");
+            }
+            opt.attr_filters[attr_key] = value;
+          }
         }
         const std::string q = req.get_param_value("q");
         // FuzzyIndex is internally synchronized; do not hold API write lock on reads.

@@ -20,7 +20,7 @@ presence of the `error` key are stable ([`compat.md`](compat.md)).
 | Status | When | Body |
 |--------|------|------|
 | **200** | Success (`/health`, upsert, search, delete found) | Route-specific success JSON |
-| **400** | Bad request: missing/`q`, invalid JSON, non-array bulk, invalid `ranker`, bad numeric params | `{ "error": "…" }` |
+| **400** | Bad request: missing/`q`, invalid JSON, non-array bulk, invalid `ranker`, bad numeric params, invalid `attrs` body / empty `attrs.` search key | `{ "error": "…" }` |
 | **404** | `DELETE /index/{id}` when id is absent | `{ "error": "not found" }` |
 
 No auth → no **401**/**403** today. Unhandled server faults are not specially
@@ -35,7 +35,12 @@ shaped (httplib defaults); treat unexpected 5xx as “process unhealthy.”
 | `GET /search` | `missing q` | No `q` query param |
 | `GET /search` | `invalid ranker (use linear or tie_break)` | Unknown `ranker` |
 | `GET /search` | `stoul` / `stod` / `stoi` what() | Non-numeric `limit` / `alpha` / `max_edit_distance` |
+| `GET /search` | `attrs key must be non-empty` | Query key `attrs.` with empty attr name (e.g. `attrs.=x`) |
 | `POST /index` | JSON / `at("id")` / type errors | Missing fields or wrong types |
+| `POST /index` | `attrs must be an object` | `attrs` present but not a JSON object |
+| `POST /index` | `attrs key must be non-empty` | Empty string key inside `attrs` |
+| `POST /index` | `attrs values must be strings` | Non-string value in `attrs` |
+| `POST /index/bulk` | same `attrs` messages as single upsert | Bad `attrs` on one array element |
 | `POST /index/bulk` | `body must be a JSON array` | Object or scalar body |
 | `POST /index/bulk` | per-item parse errors | Bad element in the array |
 | `DELETE /index/{id}` | `not found` | Id not in index (**404**) |

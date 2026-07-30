@@ -63,7 +63,9 @@ final = α · text_relevance + (1 − α) · normalize(external_score)
 ```
 
 **Not in the index (on purpose):** distance, personalization, “open now”
-rules. Over-fetch ids, then filter/rerank in the app or DB.
+rules. Over-fetch ids, then filter/rerank in the app or DB. Optional **`attrs`**
+on upsert plus `attrs.<key>` on search restrict ranking to an eligible set
+(string values on the wire); response hits still omit attrs — hydrate in the app.
 
 ---
 
@@ -74,9 +76,10 @@ curl -s localhost:8080/health
 
 curl -s -X POST localhost:8080/index \
   -H 'content-type: application/json' \
-  -d '{"id":"1","text":"Ada Ash","external_score":10}'
+  -d '{"id":"1","text":"Ada Ash","external_score":10,"attrs":{"tenant":"17"}}'
 
 curl -s 'localhost:8080/search?q=ada%20ash&limit=5&alpha=0.7'
+curl -s 'localhost:8080/search?q=ada&limit=10&attrs.tenant=17'
 
 curl -s -X DELETE localhost:8080/index/1
 

@@ -14,6 +14,7 @@ Happy path stays: omit most knobs. Defaults are fine for autocomplete + hydrate.
 ```bash
 curl -sS 'http://127.0.0.1:8080/search?q=ada%20ash&limit=5&alpha=0.7'
 curl -sS 'http://127.0.0.1:8080/search?q=ada&max_edit_distance=1&ranker=tie_break'
+curl -sS 'http://127.0.0.1:8080/search?q=shared&limit=10&attrs.tenant=zz'
 ```
 
 | Param | Required | Default | Meaning |
@@ -23,6 +24,7 @@ curl -sS 'http://127.0.0.1:8080/search?q=ada&max_edit_distance=1&ranker=tie_brea
 | `alpha` | no | `0.7` | Weight on text relevance vs normalized `external_score` when `ranker=linear` |
 | `max_edit_distance` | no | **adaptive** (see below) | Cap on Levenshtein-style edits for fuzzy |
 | `ranker` | no | process default (`linear` unless `--ranker` / `HOUND_RANKER`) | `linear` or `tie_break` |
+| `attrs.<key>` | no | — | Equality filter on indexed attrs (string value). Repeat per key; **AND** across keys. Omit all `attrs.*` → no attr filter (v0.1.0 behavior). Doc missing a filter key → does not match that filter. |
 
 ### Adaptive `max_edit_distance` (when omitted)
 
@@ -42,8 +44,20 @@ curl -sS 'http://127.0.0.1:8080/search?q=ada&max_edit_distance=1&ranker=tie_brea
 | `max_edit_distance` | Force stricter (`0`/`1`) or looser (`2`) than adaptive | Higher distance → more candidates, slower fuzzy, noisier suggest — especially on short tokens |
 | `ranker=linear` | Blend text + `external_score` with α | Need to pick α; ties broken by score blend, not a strict priority chain |
 | `ranker=tie_break` | Typesense-style: text first, then external, then id | Ignores `alpha`; `score` in JSON is text relevance (primary key), not the blend |
+| `attrs.<key>` | Restrict search to an eligible set (e.g. tenant `establishment_id`) before rank + `limit` | Text gather runs first; results are intersected with attr postings. Crowded shared labels across tenants + tight `limit` can return **fewer** hits than `limit` (under-fetch). Mitigation: raise `limit`; see measured cost in [`REFINEMENT.md`](REFINEMENT.md) (2026-07-30 H1 micro entry) |
 
-**Response fields (unchanged):** `id`, `score`, `text_relevance`, `external_score`.
+**Response fields (unchanged):** `id`, `score`, `text_relevance`, `external_score` (no `attrs` in hits — hydrate in app).
+
+### Attr filters (AND equality)
+
+- Values on the wire are **strings** (serialize numeric ids as `"17"`).
+- Filters combine with **AND**. Empty string values are valid.
+- Ranking runs on eligible candidates only, then `limit` is applied.
+- **Under-fetch:** if fuzzy/prefix gather returns mostly ids outside the eligible
+  set, you may get an empty or short page even when eligible docs exist. Unit
+  fixture: 33 docs share `text`, one eligible tenant `zz` — `limit=64` returns
+  that id; `limit=1` may return **0** hits. Trade-offs and µs numbers:
+  [`REFINEMENT.md`](REFINEMENT.md) § Phase 2 changelog (2026-07-30).
 
 ---
 

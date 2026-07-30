@@ -86,7 +86,7 @@ concurrency when RAM or immediate read-your-writes matters.
 |-------|-------|-------|
 | **F** | Layout / ART / on-disk | Only if post-SymSpell profile demands |
 | **G** | `fields=id`, SymSpell compound | Optional polish |
-| **H** | Generic attrs + multi-index | Product direction; see § Phase H (docs only so far) |
+| **H** | Generic attrs + multi-index | **H1 attrs equality shipped** (flat routes, string wire); multi-index next — § Phase H |
 | **Sync** | DB → Hound push patterns | Docs in § Sync + [`DX.md`](DX.md) D2; no connector in-core |
 | **#2–#5** | Ranker test hardening | Optional; DoD for D already met |
 
@@ -94,8 +94,7 @@ concurrency when RAM or immediate read-your-writes matters.
 
 1. **DX** — [`docs/DX.md`](DX.md): maturity **D7.1–D7.4** + **D7.6** Done;
    **D7.5** dogfood waits on real evidence. Optional: **D5** clients, **D4.1**.
-2. **Product** — **H0** filter-after POC in a consumer, or **H1** design spike
-   when in-index attrs/filters are required.
+2. **Product** — **H1 slice 2** multi-index design, or **H0** filter-after POC in a consumer.
 3. **Polish** — [#2](https://github.com/carvalhosauro/hound/issues/2)–[#5](https://github.com/carvalhosauro/hound/issues/5) / **G1** `fields=id`.
 4. **F0** — re-profile only if trie/layout is suspected after SymSpell wins.
 
@@ -515,6 +514,39 @@ Typesense-style lexicographic order (default Typesense
 ---
 
 ## Phase 2 — Changelog
+
+### 2026-07-30 — H1 attrs equality micro trade-offs (Task 5)
+
+```text
+Hypothesis: Attr postings on upsert and AND-equality filter on search add modest
+            cost vs no-attrs path; gate metrics (legacy names) stay within +10%.
+Primary metric(s):   BM_Insert/20000; BM_SearchFuzzy/20000/{1,2}
+Secondary metric(s): BM_InsertWithAttrs/20000; BM_SearchFuzzyFiltered/20000/{1,2}
+Commands: cmake --build build-bench -j2 --target hound_bench_micro;
+           hound_bench_micro → benchmarks/results/micro_20260730T041622Z.json;
+           compare_bench.py vs baselines/micro_baseline.json
+Correctness: N/A (bench-only)
+Micro gate:  pass — max delta BM_SearchFuzzy/20000/2 +5.5% vs baseline
+Decision:    ship — filter path ~2.6× fuzzy/2 at 20k; insert-with-attrs ~flat vs Insert/20k
+```
+
+| Metric | Unfiltered / no attrs | With attrs / filtered |
+|--------|----------------------|------------------------|
+| `BM_Insert/20000` | **1172 ms** (gate) | — |
+| `BM_InsertWithAttrs/20000` | — | **1147 ms** |
+| `BM_SearchFuzzy/20000/1` | **1.72 µs** (gate) | — |
+| `BM_SearchFuzzyFiltered/20000/1` | — | **11.5 µs** |
+| `BM_SearchFuzzy/20000/2` | **6.15 µs** (gate) | — |
+| `BM_SearchFuzzyFiltered/20000/2` | — | **16.3 µs** |
+
+- Baseline reference (versioned): Insert/20k ~1141 ms; Fuzzy/20k/1 ~1.70 µs;
+  Fuzzy/20k/2 ~5.82 µs (`baselines/micro_baseline.json`).
+- Insert with `tenant` attrs (64 values, `i % 64`) is within noise of plain Insert
+  on this run (~−2% cpu_time).
+- Filtered fuzzy (`attr_filters tenant="0"`, ~1/64 docs eligible) adds postings
+  intersection after fuzzy candidate generation: ~6.7× vs unfiltered at D=1,
+  ~2.6× at D=2 — expected (smaller eligible set does not skip SymSpell work).
+- Gate legacy names unchanged in `compare_bench`; new benches recorded here only.
 
 ### 2026-07-26 — Accept post-#1 micro baseline
 
@@ -1068,8 +1100,10 @@ Template for later slices:
 
 ## Phase H — Generic attrs + multi-index (product direction)
 
-**Status:** not started (design notes only). **Orthogonal to E/F/G** (perf /
-layout). Keep core domain-agnostic: no business schemas (food, stores, etc.).
+**Status:** **H1 attrs equality (slice 1) Done** — string attrs on flat `/search` /
+`/index`; wire spec [`superpowers/specs/2026-07-27-attrs-equality-design.md`](superpowers/specs/2026-07-27-attrs-equality-design.md).
+**Multi-index (slice 2) not started.** Orthogonal to E/F/G (perf / layout). Keep
+core domain-agnostic: no business schemas (food, stores, etc.).
 
 Hound stays a **sidecar**: RDBMS is source of truth; search returns ranked
 `id`s; the app **hydrates** full records. Global quality lives in
@@ -1097,9 +1131,10 @@ eligible set — not by weakening global score. Optional later: per-region
 `vertical` attr is OK for a thin POC. Message-bus *topics* are an ingest
 concern outside Hound; they map cleanly onto one consumer → one index.
 
-### H1 — Document + query sketch (API target)
+### H1 — Attrs equality (slice 1) — Done
 
-Illustrative only — wire format may change when implementation starts:
+Locked wire: **string** attr values, **flat** routes (`GET /search`, `POST /index`).
+Full contract: [`superpowers/specs/2026-07-27-attrs-equality-design.md`](superpowers/specs/2026-07-27-attrs-equality-design.md).
 
 ```json
 {
@@ -1107,33 +1142,63 @@ Illustrative only — wire format may change when implementation starts:
   "text": "synthetic item alpha",
   "external_score": 0.81,
   "attrs": {
-    "city_id": 17,
-    "open": 1
+    "establishment_id": "17",
+    "open": "1"
   }
 }
 ```
 
 ```http
-GET /indexes/{name}/search?q=alfa&attrs.city_id=17&attrs.open=1&limit=50
+GET /search?q=alfa&limit=10&attrs.establishment_id=17&attrs.open=1
 ```
 
-POC without H1 in Hound: over-fetch from today’s `/search`, then
-`WHERE id IN (…) AND city_id=? AND …` in the RDBMS (filter-after).
+**Measured trade-offs** (Release bench, 20k docs, `tenant` attrs with 64 values;
+filtered search `tenant="0"` ~1/64 eligible; gate legacy names within +10% vs
+`baselines/micro_baseline.json`):
 
-### H2 — Acceptance (when implementing)
+| Metric | Unfiltered / no attrs | With attrs / filtered |
+|--------|----------------------|------------------------|
+| `BM_Insert/20000` | **1172 ms** (gate) | — |
+| `BM_InsertWithAttrs/20000` | — | **1147 ms** (~flat vs Insert) |
+| `BM_SearchFuzzy/20000/1` | **1.72 µs** (gate) | — |
+| `BM_SearchFuzzyFiltered/20000/1` | — | **11.5 µs** (~6.7×) |
+| `BM_SearchFuzzy/20000/2` | **6.15 µs** (gate) | — |
+| `BM_SearchFuzzyFiltered/20000/2` | — | **16.3 µs** (~2.6×) |
 
-- [ ] Attr equality filters are generic (`string`/`int` keys); no domain types
+**Under-fetch fixture** (unit `test_attrs_filter.cpp`): 33 docs share `text`
+`Shared Label`; only id `eligible` has `tenant=zz`. `limit=64` + filter → 1 hit;
+`limit=1` + same filter may return **0** hits (gather ∩ eligible).
+
+Detail + compare command: Phase 2 changelog **2026-07-30 — H1 attrs equality micro
+trade-offs (Task 5)** above.
+
+### H1 — Multi-index sketch (slice 2 — not shipped)
+
+Illustrative target for a later MINOR/MAJOR slice (named indexes mirroring flat ops):
+
+```http
+GET /indexes/{name}/search?q=alfa&attrs.city_id=17&limit=50
+```
+
+POC without multi-index: one corpus + tenant attr filters (slice 1) or over-fetch
+then filter in the RDBMS (H0 filter-after).
+
+### H2 — Acceptance (attrs slice 1)
+
+- [x] Attr equality filters are generic string keys/values; no domain types
 - [ ] Multi-index: isolate docs by index name; search does not leak across
-- [ ] Default path still supports `{id,text,external_score}` with empty attrs
-- [ ] Synthetic examples + tests only; README documents hydrate-in-app pattern
-- [ ] Correctness suite green; micro gate for search path if hot path changes
+- [x] Default path still supports `{id,text,external_score}` with empty attrs
+- [x] Synthetic examples + tests only; README documents hydrate-in-app pattern
+- [x] Correctness suite green; micro gate for search path (+10% on legacy names)
+- [x] Measured trade-offs published (insert-with-attrs, filtered fuzzy, under-fetch fixture)
+- [x] OpenAPI + compat updated in the same change set as implementation
 
 ### Suggested slice order
 
 1. **H0** (this section) — done as docs.
 2. Filter-after POC in a consumer app (no Hound change).
-3. **H1** design spike → issue when a real consumer needs in-index filters.
-4. Implement attrs equality → optional multi-index → optional numeric ranges.
+3. ~~**H1** design spike~~ → **H1 attrs equality** shipped (slice 1).
+4. **H1 slice 2** multi-index → optional numeric ranges / richer filters.
 
 Do **not** block **F**/**H** product work on unfinished H slices. Prefer measuring
 real bottlenecks before growing the document model, unless a POC needs in-process

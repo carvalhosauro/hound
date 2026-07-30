@@ -140,3 +140,188 @@ TEST_CASE("parse_ranker_kind accepts linear and tie_break", "[ranker][d3]") {
   REQUIRE(std::string(hound::ranker_kind_name(hound::RankerKind::Linear)) == "linear");
   REQUIRE(std::string(hound::ranker_kind_name(hound::RankerKind::TieBreak)) == "tie_break");
 }
+
+TEST_CASE("HTTP attrs filter equality", "[integration][http][attrs][h1]") {
+  hound::FuzzyIndex index;
+  hound::HttpApi api(index);
+  const int port = api.server().bind_to_any_port("127.0.0.1");
+  REQUIRE(port > 0);
+  std::thread th([&] { api.server().listen_after_bind(); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  httplib::Client client("127.0.0.1", port);
+  client.set_connection_timeout(1, 0);
+  client.set_read_timeout(1, 0);
+
+  auto a = client.Post(
+      "/index",
+      R"({"id":"1","text":"Queijo Mussarela","external_score":1,"attrs":{"tenant":"a"}})",
+      "application/json");
+  REQUIRE(a);
+  REQUIRE(a->status == 200);
+  auto b = client.Post(
+      "/index",
+      R"({"id":"2","text":"Queijo Mussarela","external_score":9,"attrs":{"tenant":"b"}})",
+      "application/json");
+  REQUIRE(b);
+  REQUIRE(b->status == 200);
+
+  auto filtered = client.Get("/search?q=queijo&limit=10&attrs.tenant=a");
+  REQUIRE(filtered);
+  REQUIRE(filtered->status == 200);
+  auto body = nlohmann::json::parse(filtered->body);
+  REQUIRE(body["results"].size() == 1);
+  REQUIRE(body["results"][0]["id"] == "1");
+  REQUIRE_FALSE(body["results"][0].contains("attrs"));
+
+  auto unfiltered = client.Get("/search?q=queijo&limit=10");
+  REQUIRE(unfiltered);
+  REQUIRE(unfiltered->status == 200);
+  REQUIRE(nlohmann::json::parse(unfiltered->body)["results"].size() == 2);
+
+  api.stop();
+  th.join();
+}
+
+TEST_CASE("HTTP attrs upsert wipe and empty value", "[integration][http][attrs][h1]") {
+  hound::FuzzyIndex index;
+  hound::HttpApi api(index);
+  const int port = api.server().bind_to_any_port("127.0.0.1");
+  REQUIRE(port > 0);
+  std::thread th([&] { api.server().listen_after_bind(); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  httplib::Client client("127.0.0.1", port);
+  client.set_connection_timeout(1, 0);
+  client.set_read_timeout(1, 0);
+
+  REQUIRE(client.Post(
+              "/index",
+              R"({"id":"1","text":"Item","external_score":1,"attrs":{"tenant":"a","open":""}})",
+              "application/json")
+              ->status == 200);
+
+  auto empty_open = client.Get("/search?q=item&limit=10&attrs.open=");
+  REQUIRE(empty_open);
+  REQUIRE(empty_open->status == 200);
+  REQUIRE(nlohmann::json::parse(empty_open->body)["results"].size() == 1);
+
+  REQUIRE(client.Post("/index", R"({"id":"1","text":"Item","external_score":1})",
+                      "application/json")
+              ->status == 200);
+  auto after_wipe = client.Get("/search?q=item&limit=10&attrs.tenant=a");
+  REQUIRE(after_wipe);
+  REQUIRE(after_wipe->status == 200);
+  REQUIRE(nlohmann::json::parse(after_wipe->body)["results"].empty());
+
+  REQUIRE(client.Post(
+              "/index",
+              R"({"id":"2","text":"Item","external_score":1,"attrs":{"tenant":"b"}})",
+              "application/json")
+              ->status == 200);
+  REQUIRE(client.Post("/index",
+                      R"({"id":"2","text":"Item","external_score":1,"attrs":{}})",
+                      "application/json")
+              ->status == 200);
+  auto wiped_obj = client.Get("/search?q=item&limit=10&attrs.tenant=b");
+  REQUIRE(wiped_obj);
+  REQUIRE(wiped_obj->status == 200);
+  REQUIRE(nlohmann::json::parse(wiped_obj->body)["results"].empty());
+
+  api.stop();
+  th.join();
+}
+
+TEST_CASE("HTTP attrs validation 400s and last-wins", "[integration][http][attrs][h1]") {
+  hound::FuzzyIndex index;
+  hound::HttpApi api(index);
+  const int port = api.server().bind_to_any_port("127.0.0.1");
+  REQUIRE(port > 0);
+  std::thread th([&] { api.server().listen_after_bind(); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  httplib::Client client("127.0.0.1", port);
+  client.set_connection_timeout(1, 0);
+  client.set_read_timeout(1, 0);
+
+  auto expect400 = [&](auto resp) {
+    REQUIRE(resp);
+    REQUIRE(resp->status == 400);
+    auto j = nlohmann::json::parse(resp->body);
+    REQUIRE(j.contains("error"));
+    REQUIRE(j["error"].is_string());
+  };
+
+  expect400(client.Post(
+      "/index", R"({"id":"3","text":"X","external_score":1,"attrs":{"tenant":1}})",
+      "application/json"));
+  expect400(client.Post(
+      "/index", R"({"id":"3","text":"X","external_score":1,"attrs":[]})",
+      "application/json"));
+  expect400(client.Post(
+      "/index", R"({"id":"3","text":"X","external_score":1,"attrs":"x"})",
+      "application/json"));
+  expect400(client.Post(
+      "/index", R"({"id":"3","text":"X","external_score":1,"attrs":null})",
+      "application/json"));
+  expect400(client.Post(
+      "/index", R"({"id":"3","text":"X","external_score":1,"attrs":{"":"v"}})",
+      "application/json"));
+
+  expect400(client.Get("/search?q=x&attrs.=v"));
+
+  REQUIRE(client.Post(
+              "/index",
+              R"({"id":"1","text":"Queijo","external_score":1,"attrs":{"tenant":"a"}})",
+              "application/json")
+              ->status == 200);
+  REQUIRE(client.Post(
+              "/index",
+              R"({"id":"2","text":"Queijo","external_score":9,"attrs":{"tenant":"b"}})",
+              "application/json")
+              ->status == 200);
+
+  auto last = client.Get("/search?q=queijo&limit=10&attrs.tenant=a&attrs.tenant=b");
+  REQUIRE(last);
+  REQUIRE(last->status == 200);
+  auto results = nlohmann::json::parse(last->body)["results"];
+  REQUIRE(results.size() == 1);
+  REQUIRE(results[0]["id"] == "2");
+
+  api.stop();
+  th.join();
+}
+
+TEST_CASE("HTTP attrs on bulk index", "[integration][http][attrs][h1]") {
+  hound::FuzzyIndex index;
+  hound::HttpApi api(index);
+  const int port = api.server().bind_to_any_port("127.0.0.1");
+  REQUIRE(port > 0);
+  std::thread th([&] { api.server().listen_after_bind(); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  httplib::Client client("127.0.0.1", port);
+  client.set_connection_timeout(1, 0);
+  client.set_read_timeout(1, 0);
+
+  auto bulk = client.Post(
+      "/index/bulk",
+      R"([
+        {"id":"1","text":"Alpha","external_score":1,"attrs":{"tenant":"a"}},
+        {"id":"2","text":"Alpha","external_score":2,"attrs":{"tenant":"b"}}
+      ])",
+      "application/json");
+  REQUIRE(bulk);
+  REQUIRE(bulk->status == 200);
+
+  auto filtered = client.Get("/search?q=alpha&limit=10&attrs.tenant=a");
+  REQUIRE(filtered);
+  REQUIRE(filtered->status == 200);
+  auto body = nlohmann::json::parse(filtered->body);
+  REQUIRE(body["results"].size() == 1);
+  REQUIRE(body["results"][0]["id"] == "1");
+  REQUIRE_FALSE(body["results"][0].contains("attrs"));
+
+  api.stop();
+  th.join();
+}

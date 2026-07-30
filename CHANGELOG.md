@@ -8,6 +8,22 @@ versioning follows [SemVer](https://semver.org/) as described in
 
 ## [Unreleased]
 
+### Added
+
+- Optional `attrs` on `POST /index` and bulk items: opaque string map, replaced
+  wholesale on upsert; omit `attrs` wipes attrs for that id.
+- `GET /search` equality filters via `attrs.<key>=<value>` (AND across keys;
+  string values on the wire). Search hits unchanged — hydrate attrs in the app.
+
+### Notes
+
+- MINOR additive surface (target **v0.2.0** when tagged). Flat routes only;
+  multi-index remains future work.
+- Measured trade-offs at 20k docs: insert-with-attrs ~flat vs plain insert;
+  filtered fuzzy ~2.6× unfiltered at D=2 (~6.7× at D=1). Legacy micro gate names
+  within +10% vs baseline. Under-fetch possible when shared text spans tenants and
+  `limit` is tight — see [`docs/REFINEMENT.md`](docs/REFINEMENT.md) (2026-07-30).
+
 ## [0.1.0] — 2026-07-27
 
 First numbered MVP release: fuzzy autocomplete sidecar with external score,

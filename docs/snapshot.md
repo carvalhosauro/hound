@@ -5,6 +5,24 @@ restarts. Roadmap id **D2.3**.
 
 ---
 
+## Format (version 2)
+
+Binary layout after magic `HNDS` and version **2**:
+
+- Document count (`u64`)
+- Per document: `id` (length-prefixed string), `text`, `external_score` (`f64`),
+  then `attrs` count (`u32`) followed by that many key/value string pairs.
+
+Optional document **attrs** (string map) are persisted for restart and
+equality filtering on search. CSV `--load` does not populate attrs; use JSON
+bulk or HTTP upserts if you need them in the index.
+
+**Version 1** snapshots are not migrated in-process. Delete the old file and
+rebuild from `--load` / bulk export, or let Hound rewrite a v2 snapshot after
+a fresh load.
+
+---
+
 ## What it is
 
 | | |
