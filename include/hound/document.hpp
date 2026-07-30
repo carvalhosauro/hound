@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 
 namespace hound {
@@ -8,6 +9,7 @@ struct Document {
   std::string id;
   std::string text;
   double external_score = 0.0;
+  std::map<std::string, std::string> attrs;
 };
 
 struct SearchHit {
