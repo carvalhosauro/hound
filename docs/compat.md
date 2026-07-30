@@ -26,7 +26,9 @@ version bump (`vN` → `vN+1`) and a clear note in the release / changelog.
 - **MAJOR** — remove/rename a stable field, route, or status meaning; change
   required request shape; change default search JSON fields.
 - **MINOR** — additive: new optional query/body fields, new routes, richer
-  `/health`, new optional response keys (clients must ignore unknowns).
+  `/health`, new optional response keys (clients must ignore unknowns). **v0.2.0
+  (when tagged):** optional `attrs` on document upserts; optional `attrs.<key>`
+  equality filters on `GET /search` (string values on the wire).
 - **PATCH** — fixes, docs, perf, internal fuzzy/backend defaults that do not
   change the wire contract.
 
@@ -34,6 +36,20 @@ Until the first numbered `vX.Y.Z` release with a changelog entry, treat
 `main` / GHCR `:main` as **pre-1.0**: still aim not to break the table above
 without a loud note, but the formal gate is “document the break.” How to cut a
 tag: [`release.md`](release.md). `:latest` is published **only** from `v*` tags.
+
+---
+
+## Additive (MINOR) — attrs equality (H1 slice 1)
+
+Wire contract: [`superpowers/specs/2026-07-27-attrs-equality-design.md`](superpowers/specs/2026-07-27-attrs-equality-design.md).
+
+| Additive | Notes |
+|----------|--------|
+| Document JSON | Optional `attrs` object: keys non-empty strings, values JSON strings. Omit `attrs` on upsert → empty map (wipes prior attrs for that id). Present `attrs` → replace map wholesale (not deep-merge). |
+| `GET /search` | Optional repeated query params `attrs.<key>=<value>` (fixed prefix `attrs.`). AND across keys. Omit all `attrs.*` → same ranking path as v0.1.0. Search hits still omit attrs (hydrate in app). |
+| Errors | New **400** cases for invalid `attrs` body or empty attr key on search (`attrs.=…`). |
+
+Multi-index (`/indexes/{name}/…`) is **not** part of this MINOR surface.
 
 ---
 
